@@ -4,7 +4,7 @@
 #![feature(box_into_inner)]
 
 use core::future::Future;
-use std::{any::Any, cell::RefCell, pin::Pin};
+use std::{any::Any, cell::RefCell, pin::Pin, sync::Mutex};
 
 use pin_project::pin_project;
 
@@ -21,7 +21,7 @@ where
     C: 'static,
     F: Future<Output = T>,
 {
-    ctx: RefCell<Option<C>>,
+    ctx: Mutex<Option<C>>,
     #[pin]
     future: F,
 }
@@ -34,7 +34,7 @@ where
     F: Future<Output = T>,
 {
     AsyncContext {
-        ctx: RefCell::new(Some(ctx)),
+        ctx: Mutex::new(Some(ctx)),
         future,
     }
 }
@@ -49,13 +49,22 @@ where
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        let ctx: C = self.ctx.borrow_mut().take().unwrap();
+        let ctx: C = self
+            .ctx
+            .lock()
+            .expect("Failed to lock context mutex")
+            .take()
+            .expect("No context found");
         CTX.set(Box::new(ctx));
         let projection = self.project();
         let future: Pin<&mut F> = projection.future;
         let poll = future.poll(cx);
         let ctx: C = Box::into_inner(CTX.replace(Box::new(())).downcast().unwrap());
-        projection.ctx.replace(Some(ctx));
+        projection
+            .ctx
+            .lock()
+            .expect("Feiled to lock context mutex")
+            .replace(ctx);
         poll
     }
 }
@@ -63,19 +72,19 @@ where
 /// Retrieves immutable ref for async context in order to read values.
 pub fn with_async_context<C, F, R>(f: F) -> R
 where
-    F: FnOnce(&C) -> R,
+    F: FnOnce(Option<&C>) -> R,
     C: 'static,
 {
-    return CTX.with(|value| f(value.borrow().downcast_ref::<C>().unwrap()));
+    return CTX.with(|value| f(value.borrow().downcast_ref::<C>()));
 }
 
 /// Retrieves mutable ref for async context in order to read values.
 pub fn with_async_context_mut<C, F, R>(f: F) -> R
 where
-    F: FnOnce(&mut C) -> R,
+    F: FnOnce(Option<&mut C>) -> R,
     C: 'static,
 {
-    return CTX.with(|value| f(value.borrow_mut().downcast_mut::<C>().unwrap()));
+    return CTX.with(|value| f(value.borrow_mut().downcast_mut::<C>()));
 }
 
 #[cfg(test)]
@@ -85,7 +94,7 @@ mod tests {
     #[tokio::test]
     async fn it_works() {
         async fn runs_with_context() -> String {
-            let value = with_async_context(|value: &String| value.clone());
+            let value = with_async_context(|value: Option<&String>| value.unwrap().clone());
             value
         }
 
