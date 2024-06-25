@@ -1,3 +1,10 @@
 [workspace]
 
-members = ["async-context", "bloom-core"]
+members = [
+    "async-context",
+    "bloom-core",
+    "bloom-html",
+    "bloom-server",
+    "bloom-client",
+    "bloom-client-example",
+]

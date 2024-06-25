@@ -12,7 +12,7 @@ use crate::{
     render_queue::{RenderQueue, RenderQueueItem},
     state::StateUpdate,
     suspense::{run_or_suspend, RunOrSuspendResult},
-    Component, Element, Node,
+    Element,
 };
 
 pub(crate) struct TreeComponent<N, E> {
@@ -83,16 +83,39 @@ impl<N, E> TreeNode<N, E> {
     }
 }
 
-pub async fn render_loop<N, E, C, S>(root: Arc<N>, component: C, spawner: S) -> Result<(), E>
+pub trait ObjectModel {
+    type Node;
+    fn start(&mut self) {
+        // Do nothing by default
+    }
+    fn create(
+        &mut self,
+        node: &Arc<Self::Node>,
+        parent: &Arc<Self::Node>,
+        sibling: &Option<Arc<Self::Node>>,
+    );
+    fn remove(&mut self, node: &Arc<Self::Node>, parent: &Arc<Self::Node>);
+    fn update(&mut self, node: &Arc<Self::Node>, next: &Arc<Self::Node>);
+    fn finalize(&mut self) {
+        // Do nothing by default
+    }
+}
+
+pub async fn render_loop<N, E, S, P>(
+    root: Arc<N>,
+    element: Element<N, E>,
+    spawner: S,
+    mut object_model: P,
+) -> Result<(), E>
 where
-    N: Node + Send + 'static,
+    N: Send + 'static,
     E: Send + 'static,
-    C: Component<Node = N, Error = E> + 'static,
     S: Spawn,
+    P: ObjectModel<Node = N>,
 {
     let mut render_queue = RenderQueue::new();
 
-    let mut tree_root = TreeNode::Component(TreeComponent::new(Arc::new(component)));
+    let mut tree_root = TreeNode::from(element);
 
     let (signal_sender, signal_receiver) = bounded::<()>(1);
 
@@ -119,7 +142,7 @@ where
                         &spawner,
                     )?,
                     TreeNode::Node(node, children) => {
-                        node.paint(&parent, &sibling);
+                        object_model.create(node, &parent, &sibling);
 
                         let mut sibling = None;
                         for child in children.iter_mut().rev() {
@@ -190,7 +213,7 @@ where
                         (
                             TreeNode::Component(ref mut current_component),
                             Element::Component(next_component),
-                        ) => match next_component.compare(&current_component.component) {
+                        ) => match next_component.compare(current_component.component.as_any()) {
                             ComponentDiff::Equal => {
                                 render_queue.reload(unsafe { &mut *current }, parent, sibling)
                             }
@@ -220,7 +243,7 @@ where
                             Element::Node(next, next_children),
                         ) => {
                             let next = Arc::new(next);
-                            current.update(&next);
+                            object_model.update(current, &next);
                             *current = Arc::clone(&next);
                             update_children(
                                 current_children,
@@ -252,7 +275,7 @@ where
                         }
                     }
                     TreeNode::Node(node, children) => {
-                        node.remove(&parent);
+                        object_model.remove(&node, &parent);
                         for child in children {
                             render_queue.remove(child, Arc::clone(&node));
                         }
@@ -313,7 +336,7 @@ fn render_component<N, E, S>(
     spawner: &S,
 ) -> Result<(), E>
 where
-    N: Node + Send + 'static,
+    N: Send + 'static,
     E: Send + 'static,
     S: Spawn,
 {

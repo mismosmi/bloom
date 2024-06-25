@@ -10,6 +10,15 @@ pub trait Component: PartialEq<Self> + Send + Sync {
     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error>;
 }
 
+impl<N, E, C> From<C> for Element<N, E>
+where
+    C: Component<Node = N, Error = E> + Sized + 'static,
+{
+    fn from(component: C) -> Self {
+        Element::Component(Arc::new(component))
+    }
+}
+
 #[derive(PartialEq)]
 pub enum ComponentDiff {
     NewType,

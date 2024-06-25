@@ -1,4 +1,4 @@
-use std::{pin::Pin, sync::Arc, task::Poll};
+use std::{pin::Pin, task::Poll};
 
 use futures_util::{
     future::{self},
@@ -7,7 +7,7 @@ use futures_util::{
     Future, Stream, StreamExt,
 };
 
-use crate::{Component, Element, Node};
+use crate::Element;
 
 use pin_project::pin_project;
 
@@ -85,15 +85,11 @@ where
     NodeStream::from(children)
 }
 
-pub fn render_stream<N, E, C, S>(component: C, spawner: S) -> NodeStream<N, E>
+pub fn render_stream<N, E, S>(element: Element<N, E>, spawner: S) -> NodeStream<N, E>
 where
-    N: Node + Send + Sync + 'static,
+    N: Send + Sync + 'static,
     E: Send + 'static,
-    C: Component<Node = N, Error = E> + 'static,
     S: Spawn + Clone + Send + 'static,
 {
-    NodeStream::wrap(render_element(
-        Element::Component(Arc::new(component)),
-        spawner.clone(),
-    ))
+    NodeStream::wrap(render_element(element, spawner.clone()))
 }
