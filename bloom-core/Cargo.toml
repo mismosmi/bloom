@@ -11,4 +11,6 @@ async-trait = "0.1.80"
 async-context = { path = "../async-context" }
 async-channel = "2.2.1"
 pin-project = "1.1.5"
-noop-waker = "0.1.0"
+
+[dev-dependencies]
+tokio = { version = "1.37.0", features = ["macros", "rt"] }

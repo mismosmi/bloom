@@ -7,3 +7,7 @@ pub fn div() -> HtmlElementBuilder {
 pub fn span() -> HtmlElementBuilder {
     HtmlNode::element("span".to_string())
 }
+
+pub fn button() -> HtmlElementBuilder {
+    HtmlNode::element("button".to_string())
+}

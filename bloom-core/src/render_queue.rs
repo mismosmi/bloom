@@ -71,3 +71,51 @@ impl<N, E, TN> RenderQueue<N, E, TN> {
         self.0.pop()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{borrow::Borrow, sync::Arc};
+
+    #[test]
+    fn basic_render_queue() {
+        struct TreeNode {
+            children: Vec<Box<TreeNode>>,
+        }
+
+        let mut root = TreeNode {
+            children: Vec::new(),
+        };
+
+        let mut child = Box::new(TreeNode {
+            children: Vec::new(),
+        });
+
+        let mut queue = RenderQueue::<(), (), TreeNode>::new();
+
+        queue.reload(&mut root, Arc::new(()), None);
+
+        let item = queue.next().unwrap();
+
+        match item {
+            RenderQueueItem::Reload { current, .. } => {
+                assert_eq!(current as *const _, &root as *const _);
+
+                queue.create(child.as_mut(), Arc::new(()), None);
+                unsafe {
+                    (&mut *current).children.push(child);
+                }
+            }
+            _ => panic!("Unexpected item"),
+        }
+
+        let item = queue.next().unwrap();
+
+        match item {
+            RenderQueueItem::Create { current, .. } => {
+                assert_eq!(current as *const _, &*root.children[0] as *const _);
+            }
+            _ => panic!("Unexpected item"),
+        }
+    }
+}

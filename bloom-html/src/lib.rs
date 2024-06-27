@@ -1,7 +1,9 @@
+mod event;
 mod node;
 pub mod tag;
 
 use bloom_core::Element;
+pub use event::{EventHandler, HtmlEvent};
 pub use node::{HtmlElement, HtmlNode};
 
 pub fn text<E, T>(text: T) -> Element<HtmlNode, E>

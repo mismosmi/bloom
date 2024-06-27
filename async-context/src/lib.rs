@@ -1,6 +1,5 @@
 //! A way to have some context within async functions. This can be used to implement React-like hooks.
 //!
-#![feature(local_key_cell_methods)]
 #![feature(box_into_inner)]
 
 use core::future::Future;

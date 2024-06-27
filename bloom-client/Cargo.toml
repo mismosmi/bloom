@@ -22,3 +22,6 @@ web-sys = { version = "0.3", features = [
     "NodeList",
     "console",
 ] }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.42"

@@ -1,4 +1,4 @@
-use std::{any::Any, sync::Arc};
+use std::{any::Any, collections::HashMap, iter::repeat, sync::Arc};
 
 use async_channel::{bounded, unbounded, Receiver, Sender};
 use futures_util::{
@@ -17,7 +17,7 @@ use crate::{
 
 pub(crate) struct TreeComponent<N, E> {
     component: Arc<dyn AnyComponent<Node = N, Error = E> + Sync>,
-    state: Vec<Arc<dyn Any + Send + Sync>>,
+    state: HashMap<u16, Arc<dyn Any + Send + Sync>>,
     updates: Receiver<StateUpdate>,
     updater: Sender<StateUpdate>,
     render_result: Option<RemoteHandle<Result<Element<N, E>, E>>>,
@@ -29,7 +29,7 @@ impl<N, E> TreeComponent<N, E> {
         let (update_sender, update_receiver) = unbounded::<StateUpdate>();
         Self {
             component,
-            state: Vec::new(),
+            state: HashMap::new(),
             updates: update_receiver,
             updater: update_sender,
             child: None,
@@ -113,9 +113,8 @@ where
     S: Spawn,
     P: ObjectModel<Node = N>,
 {
-    let mut render_queue = RenderQueue::new();
-
     let mut tree_root = TreeNode::from(element);
+    let mut render_queue = RenderQueue::new();
 
     let (signal_sender, signal_receiver) = bounded::<()>(1);
 
@@ -124,7 +123,7 @@ where
         .expect("Failed to send message to trigger initial render");
 
     while let Ok(_) = signal_receiver.recv().await {
-        render_queue.reload(&mut tree_root, Arc::clone(&root), None);
+        render_queue.reload(&mut tree_root, root.clone(), None);
 
         while let Some(item) = render_queue.next() {
             match item {
@@ -143,11 +142,8 @@ where
                     )?,
                     TreeNode::Node(node, children) => {
                         object_model.create(node, &parent, &sibling);
-
-                        let mut sibling = None;
                         for child in children.iter_mut().rev() {
-                            render_queue.create(child, Arc::clone(node), sibling);
-                            sibling = child.get_first_node();
+                            render_queue.create(child, Arc::clone(node), None);
                         }
                     }
                     TreeNode::Fragment(children) => {
@@ -244,7 +240,7 @@ where
                         ) => {
                             let next = Arc::new(next);
                             object_model.update(current, &next);
-                            *current = Arc::clone(&next);
+                            *current = next.clone();
                             update_children(
                                 current_children,
                                 next_children,
@@ -295,35 +291,32 @@ where
 
 fn update_children<N, E>(
     tree_nodes: &mut Vec<TreeNode<N, E>>,
-    elements: Vec<Element<N, E>>,
+    mut elements: Vec<Element<N, E>>,
     render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
     parent: &Arc<N>,
     sibling: &Option<Arc<N>>,
 ) {
-    let range = 0..std::cmp::max(tree_nodes.len(), elements.len());
-    let mut nodes_iter = tree_nodes
-        .drain(..)
-        .collect::<Vec<TreeNode<N, E>>>()
-        .into_iter();
-    tree_nodes.shrink_to(elements.len());
-    let mut elements_iter = elements.into_iter();
-    for _i in range {
-        let tree_node = nodes_iter.next();
-        let element = elements_iter.next();
+    let old_len = tree_nodes.len();
 
-        match (tree_node, element) {
-            (None, None) => panic!("Iterator running beyond finish"),
-            (Some(tree_node), None) => render_queue.remove(tree_node, parent.clone()),
-            (None, Some(element)) => {
-                let mut tree_node = TreeNode::from(element);
-                render_queue.create(&mut tree_node, Arc::clone(parent), sibling.clone());
-                tree_nodes.push(tree_node);
-            }
-            (Some(mut tree_node), Some(element)) => {
-                render_queue.update(&mut tree_node, element, parent.clone(), sibling.clone());
-                tree_nodes.push(tree_node);
-            }
-        }
+    for tree_node in tree_nodes.drain(elements.len()..).rev() {
+        render_queue.remove(tree_node, parent.clone());
+    }
+
+    tree_nodes.shrink_to_fit();
+
+    for element in elements.drain(tree_nodes.len()..) {
+        tree_nodes.push(TreeNode::from(element));
+    }
+
+    for tree_node in tree_nodes.iter_mut().skip(old_len).rev() {
+        render_queue.create(tree_node, parent.clone(), sibling.clone());
+    }
+
+    let mut sibling = sibling.clone();
+    for (tree_node, element) in tree_nodes.iter_mut().zip(elements.into_iter()).rev() {
+        let next_sibling = tree_node.get_first_node();
+        render_queue.update(tree_node, element, parent.clone(), sibling.clone());
+        sibling = next_sibling;
     }
 }
 
@@ -363,9 +356,10 @@ where
                     render_queue.update(node.as_mut(), element?, parent.clone(), sibling.clone())
                 }
                 None => {
-                    let mut tree_node = TreeNode::from(element?);
-                    render_queue.create(&mut tree_node, parent.clone(), sibling.clone());
-                    tree_component.child = Some(Box::new(tree_node));
+                    let tree_node = TreeNode::from(element?);
+                    let mut child = Box::new(tree_node);
+                    render_queue.create(child.as_mut(), parent.clone(), sibling.clone());
+                    tree_component.child = Some(child);
                 }
             }
         }
@@ -395,4 +389,202 @@ fn replace_node<N, E>(
     std::mem::swap(node, &mut old_node);
     render_queue.create(node, Arc::clone(&parent), sibling);
     render_queue.remove(old_node, parent);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::Arc,
+        task::{Context, Poll},
+    };
+
+    use async_trait::async_trait;
+    use futures_util::{
+        stream::FuturesUnordered,
+        task::{noop_waker, Spawn},
+        Future, FutureExt,
+    };
+
+    use crate::{use_state, Component, Element, ObjectModel};
+
+    struct MockObjectModel {
+        to_create: Vec<MockNode>,
+        to_update: Vec<MockNode>,
+        to_remove: Vec<MockNode>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct MockNode(i32);
+
+    impl ObjectModel for MockObjectModel {
+        type Node = MockNode;
+        fn create(
+            &mut self,
+            node: &std::sync::Arc<Self::Node>,
+            _parent: &std::sync::Arc<Self::Node>,
+            _sibling: &Option<std::sync::Arc<Self::Node>>,
+        ) {
+            println!("create({:?})", &node);
+            assert_eq!(
+                node.as_ref(),
+                &self.to_create.pop().expect("Too many create-calls"),
+                "Created node mismatch"
+            );
+        }
+
+        fn update(&mut self, node: &std::sync::Arc<Self::Node>, next: &std::sync::Arc<Self::Node>) {
+            println!("update({:?}, {:?})", &node, &next);
+            assert_eq!(
+                next.as_ref(),
+                &self.to_update.pop().expect("Too many update-calls"),
+                "Updated node mismatch"
+            );
+        }
+
+        fn remove(
+            &mut self,
+            node: &std::sync::Arc<Self::Node>,
+            _parent: &std::sync::Arc<Self::Node>,
+        ) {
+            println!("remove({:?})", &node);
+            assert_eq!(
+                node.as_ref(),
+                &self.to_remove.pop().expect("Too many update-calls"),
+                "Removed node mismatch"
+            );
+        }
+    }
+
+    struct TokioSpawner;
+
+    impl Spawn for TokioSpawner {
+        fn spawn_obj(
+            &self,
+            future: futures_util::task::FutureObj<'static, ()>,
+        ) -> Result<(), futures_util::task::SpawnError> {
+            tokio::spawn(future.map(|_| ()));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn render_basic_component() {
+        #[derive(PartialEq)]
+        struct MockComponent;
+
+        #[async_trait]
+        impl Component for MockComponent {
+            type Error = ();
+            type Node = MockNode;
+            async fn render(
+                self: Arc<Self>,
+            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                Ok(Element::Node(MockNode(0), Vec::new()))
+            }
+        }
+
+        let root = Arc::new(MockNode(0));
+        let element = Element::Component(Arc::new(MockComponent));
+        let object_model = MockObjectModel {
+            to_create: vec![MockNode(0)],
+            to_update: Vec::new(),
+            to_remove: Vec::new(),
+        };
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        let mut task = Box::pin(super::render_loop(
+            root,
+            element,
+            TokioSpawner,
+            object_model,
+        ));
+
+        assert_eq!(task.poll_unpin(&mut cx), Poll::Pending);
+        assert_eq!(task.poll_unpin(&mut cx), Poll::Pending);
+    }
+
+    #[test]
+    fn with_callback() {
+        #[derive(PartialEq)]
+        struct AutoCounter;
+
+        #[async_trait]
+        impl Component for AutoCounter {
+            type Error = ();
+            type Node = MockNode;
+            async fn render(
+                self: Arc<Self>,
+            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                let counter = use_state::<i32>();
+                if *counter == 0 {
+                    counter.update(|count| *count + 1);
+                }
+                Ok(Element::Node(MockNode(*counter), Vec::new()))
+            }
+        }
+        let root = Arc::new(MockNode(0));
+        let element = Element::Component(Arc::new(AutoCounter));
+        let object_model = MockObjectModel {
+            to_create: vec![MockNode(0)],
+            to_update: vec![MockNode(1)],
+            to_remove: Vec::new(),
+        };
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        let mut task = Box::pin(super::render_loop(
+            root,
+            element,
+            TokioSpawner,
+            object_model,
+        ));
+
+        assert_eq!(task.poll_unpin(&mut cx), Poll::Pending);
+        assert_eq!(task.poll_unpin(&mut cx), Poll::Pending);
+    }
+
+    #[test]
+    fn update_order() {
+        #[derive(PartialEq)]
+        struct MultiContent;
+
+        #[async_trait]
+        impl Component for MultiContent {
+            type Error = ();
+            type Node = MockNode;
+            async fn render(
+                self: Arc<Self>,
+            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                let counter = use_state::<i32>();
+                if *counter == 0 {
+                    counter.update(|count| *count + 1);
+                }
+                Ok(Element::Node(
+                    MockNode(*counter),
+                    vec![
+                        Element::Node(MockNode(3), Vec::new()),
+                        Element::Node(MockNode(4), Vec::new()),
+                        Element::Node(MockNode(5), Vec::new()),
+                    ],
+                ))
+            }
+        }
+        let root = Arc::new(MockNode(0));
+        let element = Element::Component(Arc::new(MultiContent));
+        let object_model = MockObjectModel {
+            to_create: vec![MockNode(5), MockNode(4), MockNode(3), MockNode(0)],
+            to_update: vec![MockNode(5), MockNode(4), MockNode(3), MockNode(1)],
+            to_remove: Vec::new(),
+        };
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        let mut task = Box::pin(super::render_loop(
+            root,
+            element,
+            TokioSpawner,
+            object_model,
+        ));
+
+        assert_eq!(task.poll_unpin(&mut cx), Poll::Pending);
+        assert_eq!(task.poll_unpin(&mut cx), Poll::Pending);
+    }
 }

@@ -1,4 +1,4 @@
-use noop_waker::noop_waker;
+use futures_util::task::noop_waker;
 use std::{
     future::Future,
     pin::Pin,
