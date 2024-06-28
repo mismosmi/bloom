@@ -5,6 +5,7 @@ use std::{
 
 use bloom_core::ObjectModel;
 use bloom_html::{HtmlEvent, HtmlNode};
+use futures_util::{future, Future};
 use weak_table::PtrWeakKeyHashMap;
 use web_sys::{
     console,
@@ -286,9 +287,10 @@ impl ObjectModel for Dom {
         }
     }
 
-    fn finalize(&mut self) {
+    fn finalize(&mut self) -> impl Future<Output = ()> {
         console::log_1(&"Finalize".into());
         self.hydration_state = None;
+        future::ready(())
     }
 }
 

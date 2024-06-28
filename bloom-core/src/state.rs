@@ -26,6 +26,7 @@ impl StateUpdate {
     }
 }
 
+#[derive(Clone)]
 pub struct State<T> {
     value: Arc<T>,
     signal: Sender<()>,

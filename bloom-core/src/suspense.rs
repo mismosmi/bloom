@@ -10,9 +10,11 @@ pub(crate) enum RunOrSuspendResult<T> {
     Done(T),
 }
 
-pub(crate) fn run_or_suspend<T, F>(future: F) -> RunOrSuspendResult<T>
+pub(crate) fn run_or_suspend<T>(
+    future: Pin<Box<dyn Future<Output = T> + Send>>,
+) -> RunOrSuspendResult<T>
 where
-    F: Future<Output = T> + Send + 'static,
+    T: 'static,
 {
     let waker = noop_waker();
     let mut cx = Context::from_waker(&waker);
@@ -22,5 +24,22 @@ where
     match poll {
         Poll::Pending => RunOrSuspendResult::Suspend(boxed),
         Poll::Ready(result) => RunOrSuspendResult::Done(result),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_run_or_suspend() {
+        let future = async { 42 };
+        let boxed = Box::pin(future);
+        let result = run_or_suspend(boxed);
+
+        match result {
+            RunOrSuspendResult::Suspend(_) => panic!("Expected Done, got Suspend"),
+            RunOrSuspendResult::Done(result) => assert_eq!(result, 42),
+        }
     }
 }

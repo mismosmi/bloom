@@ -3,7 +3,7 @@
 #![feature(box_into_inner)]
 
 use core::future::Future;
-use std::{any::Any, cell::RefCell, pin::Pin, sync::Mutex};
+use std::{any::Any, cell::RefCell, pin::Pin, sync::Mutex, task::Poll};
 
 use pin_project::pin_project;
 
@@ -42,7 +42,7 @@ impl<C, T, F> Future for AsyncContext<C, T, F>
 where
     F: Future<Output = T>,
 {
-    type Output = T;
+    type Output = (T, C);
 
     fn poll(
         self: std::pin::Pin<&mut Self>,
@@ -59,12 +59,17 @@ where
         let future: Pin<&mut F> = projection.future;
         let poll = future.poll(cx);
         let ctx: C = Box::into_inner(CTX.replace(Box::new(())).downcast().unwrap());
-        projection
-            .ctx
-            .lock()
-            .expect("Feiled to lock context mutex")
-            .replace(ctx);
-        poll
+        match poll {
+            Poll::Ready(value) => return Poll::Ready((value, ctx)),
+            Poll::Pending => {
+                projection
+                    .ctx
+                    .lock()
+                    .expect("Feiled to lock context mutex")
+                    .replace(ctx);
+                Poll::Pending
+            }
+        }
     }
 }
 
@@ -99,7 +104,7 @@ mod tests {
 
         let async_context = provide_async_context("foobar".to_string(), runs_with_context());
 
-        let value = async_context.await;
+        let (value, _) = async_context.await;
 
         assert_eq!("foobar", value);
     }

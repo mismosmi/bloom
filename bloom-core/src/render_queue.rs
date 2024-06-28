@@ -1,6 +1,10 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use crate::Element;
+use crate::{
+    component::AnyComponent,
+    effect::{Cleanup, Effect},
+    Element,
+};
 
 pub(crate) enum RenderQueueItem<N, E, TN> {
     Create {
@@ -25,15 +29,25 @@ pub(crate) enum RenderQueueItem<N, E, TN> {
     },
 }
 
-pub(crate) struct RenderQueue<N, E, TN>(Vec<RenderQueueItem<N, E, TN>>);
+pub(crate) struct RenderQueue<N, E, TN> {
+    queue: Vec<RenderQueueItem<N, E, TN>>,
+    effects: HashMap<*const (), Vec<(u64, Effect)>>,
+    cleanups: HashMap<*const (), Vec<(u64, Cleanup)>>,
+    clear_cleanups: Vec<*const ()>,
+}
 
 impl<N, E, TN> RenderQueue<N, E, TN> {
     pub(crate) fn new() -> Self {
-        Self(Vec::new())
+        Self {
+            queue: Vec::new(),
+            effects: HashMap::new(),
+            cleanups: HashMap::new(),
+            clear_cleanups: Vec::new(),
+        }
     }
 
     pub(crate) fn create(&mut self, current: &mut TN, parent: Arc<N>, sibling: Option<Arc<N>>) {
-        self.0.push(RenderQueueItem::Create {
+        self.queue.push(RenderQueueItem::Create {
             current: current as *mut TN,
             parent,
             sibling,
@@ -41,7 +55,7 @@ impl<N, E, TN> RenderQueue<N, E, TN> {
     }
 
     pub(crate) fn reload(&mut self, current: &mut TN, parent: Arc<N>, sibling: Option<Arc<N>>) {
-        self.0.push(RenderQueueItem::Reload {
+        self.queue.push(RenderQueueItem::Reload {
             current,
             parent,
             sibling,
@@ -55,7 +69,7 @@ impl<N, E, TN> RenderQueue<N, E, TN> {
         parent: Arc<N>,
         sibling: Option<Arc<N>>,
     ) {
-        self.0.push(RenderQueueItem::Update {
+        self.queue.push(RenderQueueItem::Update {
             current: current as *mut TN,
             next,
             parent,
@@ -64,18 +78,82 @@ impl<N, E, TN> RenderQueue<N, E, TN> {
     }
 
     pub(crate) fn remove(&mut self, current: TN, parent: Arc<N>) {
-        self.0.push(RenderQueueItem::Remove { current, parent })
+        self.queue.push(RenderQueueItem::Remove { current, parent })
     }
 
     pub(crate) fn next(&mut self) -> Option<RenderQueueItem<N, E, TN>> {
-        self.0.pop()
+        self.queue.pop()
+    }
+
+    pub(crate) fn queue_effects(
+        &mut self,
+        component: &Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>,
+        effects: Vec<(u64, Effect)>,
+    ) {
+        self.effects.insert(
+            component.as_ref() as *const dyn AnyComponent<Node = N, Error = E> as *const (),
+            effects,
+        );
+    }
+
+    pub(crate) fn queue_cleanups(
+        &mut self,
+        component: &Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>,
+    ) {
+        self.clear_cleanups
+            .push(component.as_ref() as *const dyn AnyComponent<Node = N, Error = E> as *const ());
+    }
+
+    pub(crate) fn move_cleanups(
+        &mut self,
+        old_component: &Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>,
+        new_component: &Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>,
+    ) {
+        if let Some(cleanups) = self.cleanups.remove(
+            &(old_component.as_ref() as *const dyn AnyComponent<Node = N, Error = E> as *const ()),
+        ) {
+            self.cleanups.insert(
+                new_component.as_ref() as *const dyn AnyComponent<Node = N, Error = E> as *const (),
+                cleanups,
+            );
+        }
+    }
+
+    pub(crate) fn run_effects(&mut self) {
+        for component in self.clear_cleanups.drain(..) {
+            if let Some(cleanups) = self.cleanups.remove(&component) {
+                for (_, cleanup) in cleanups {
+                    cleanup.run()
+                }
+            }
+        }
+
+        for (component, effects) in self.effects.drain() {
+            let mut next_cleanups = Vec::with_capacity(effects.len());
+            if let Some(cleanups) = self.cleanups.remove(&component) {
+                for ((effect_hash, effect), (cleanup_hash, cleanup)) in
+                    effects.into_iter().zip(cleanups.into_iter())
+                {
+                    if effect_hash == cleanup_hash {
+                        next_cleanups.push((cleanup_hash, cleanup));
+                    } else {
+                        cleanup.run();
+                        next_cleanups.push((effect_hash, effect.run()));
+                    }
+                }
+            } else {
+                for (effect_hash, effect) in effects {
+                    next_cleanups.push((effect_hash, effect.run()));
+                }
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{borrow::Borrow, sync::Arc};
+    use std::sync::Arc;
 
     #[test]
     fn basic_render_queue() {
