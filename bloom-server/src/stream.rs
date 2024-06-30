@@ -11,7 +11,7 @@ pub struct StringStream<E> {
 }
 
 impl<E> Stream for StringStream<E> {
-    type Item = String;
+    type Item = Result<String, E>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -23,21 +23,21 @@ impl<E> Stream for StringStream<E> {
                     HtmlNode::Element(element) => {
                         self.stack
                             .push((Some(element.tag_name().to_string()), children));
-                        return Poll::Ready(Some(serialize_node_open(&element)));
+                        return Poll::Ready(Some(Ok(serialize_node_open(&element))));
                     }
                     HtmlNode::Text(text) => {
-                        return Poll::Ready(Some(text));
+                        return Poll::Ready(Some(Ok(text)));
                     }
                 },
                 Poll::Ready(None) => {
                     if let Some((Some(tag_name), _)) = self.stack.pop() {
-                        Poll::Ready(Some(format!("</{}>", tag_name)))
+                        Poll::Ready(Some(Ok(format!("</{}>", tag_name))))
                     } else {
                         Poll::Ready(None)
                     }
                 }
                 Poll::Pending => Poll::Pending,
-                Poll::Ready(Some(Err(_))) => Poll::Ready(None),
+                Poll::Ready(Some(Err(error))) => Poll::Ready(Some(Err(error))),
             }
         } else {
             Poll::Ready(None)
@@ -76,7 +76,7 @@ mod tests {
         let mut stream = render_to_stream::<(), TokioSpawner>(element, TokioSpawner);
 
         let mut output = String::new();
-        while let Some(chunk) = stream.next().await {
+        while let Some(Ok(chunk)) = stream.next().await {
             output.push_str(&chunk);
         }
 
@@ -90,7 +90,7 @@ mod tests {
         let mut stream = render_to_stream::<(), TokioSpawner>(element, TokioSpawner);
 
         let mut output = String::new();
-        while let Some(chunk) = stream.next().await {
+        while let Some(Ok(chunk)) = stream.next().await {
             output.push_str(&chunk);
         }
 

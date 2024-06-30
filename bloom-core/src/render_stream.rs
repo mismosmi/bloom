@@ -21,7 +21,7 @@ use pin_project::pin_project;
 type NodeStreamItem<N, E> = Result<(N, NodeStream<N, E>), E>;
 
 #[pin_project]
-pub struct NodeStream<N, E>(#[pin] Pin<Box<dyn Stream<Item = NodeStreamItem<N, E>>>>);
+pub struct NodeStream<N, E>(#[pin] Pin<Box<dyn Stream<Item = NodeStreamItem<N, E>> + Send>>);
 
 impl<N, E> Stream for NodeStream<N, E> {
     type Item = NodeStreamItem<N, E>;
@@ -37,10 +37,10 @@ impl<N, E> Stream for NodeStream<N, E> {
 
 impl<N, E> NodeStream<N, E>
 where
-    E: 'static,
-    N: 'static,
+    E: Send + 'static,
+    N: Send + 'static,
 {
-    fn from(stream: impl Stream<Item = NodeStreamItem<N, E>> + 'static) -> Self {
+    fn from(stream: impl Stream<Item = NodeStreamItem<N, E>> + Send + 'static) -> Self {
         Self(Box::pin(stream))
     }
 
@@ -48,7 +48,7 @@ where
         Self::from(once(future::ready(item)))
     }
 
-    fn wrap(inner: impl Future<Output = NodeStream<N, E>> + 'static) -> Self {
+    fn wrap(inner: impl Future<Output = NodeStream<N, E>> + Send + 'static) -> Self {
         Self(Box::pin(once(inner).flatten()))
     }
 }
@@ -78,7 +78,7 @@ fn render_element<N, E, S>(
     element: Element<N, E>,
     spawner: S,
     ctx: RenderContext,
-) -> Pin<Box<dyn Future<Output = NodeStream<N, E>>>>
+) -> Pin<Box<dyn Future<Output = NodeStream<N, E>> + Send>>
 where
     N: Send + 'static,
     E: Send + 'static,

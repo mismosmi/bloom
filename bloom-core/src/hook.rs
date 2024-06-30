@@ -39,8 +39,8 @@ impl Hook {
     }
 
     pub(crate) fn from_context(context: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>) -> Self {
-        let (signal, _) = bounded(0);
-        let (updater, _) = bounded(0);
+        let (signal, _) = bounded(1);
+        let (updater, _) = bounded(1);
 
         Self {
             signal,

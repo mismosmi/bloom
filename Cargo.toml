@@ -6,5 +6,6 @@ members = [
     "bloom-html",
     "bloom-server",
     "bloom-client",
-    "bloom-client-example", "bloom-server-example",
+    "bloom-client-example",
+    "bloom-server-example",
 ]

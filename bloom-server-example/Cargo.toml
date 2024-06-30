@@ -4,3 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+axum = "0.7.5"
+bloom-core = { version = "0.1.0", path = "../bloom-core" }
+bloom-html = { version = "0.1.0", path = "../bloom-html" }
+bloom-server = { version = "0.1.0", path = "../bloom-server" }
+derive_builder = "0.20.0"
+futures-util = "0.3.30"
+serde = { version = "1.0.203", features = ["derive"] }
+tokio = { version = "1.38.0", features = ["rt-multi-thread"] }
