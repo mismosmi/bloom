@@ -10,7 +10,7 @@ use futures_util::{
 use crate::{
     component::{AnyComponent, ComponentDiff},
     hook::Hook,
-    render_queue::{RenderQueue, RenderQueueItem},
+    render_queue::{RenderContext, RenderQueue, RenderQueueItem},
     state::StateUpdate,
     suspense::{run_or_suspend, RunOrSuspendResult},
     Element,
@@ -45,6 +45,7 @@ pub(crate) enum TreeNode<N, E> {
     Component(TreeComponent<N, E>),
     Node(Arc<N>, Vec<TreeNode<N, E>>),
     Fragment(Vec<TreeNode<N, E>>),
+    Provider(Arc<dyn Any + Send + Sync>, Vec<TreeNode<N, E>>),
 }
 
 impl<N, E> TreeNode<N, E> {
@@ -64,6 +65,9 @@ impl<N, E> TreeNode<N, E> {
                     .map(|child| TreeNode::from(child))
                     .collect(),
             ),
+            Element::Provider(value, children) => {
+                TreeNode::Provider(value, children.into_iter().map(TreeNode::from).collect())
+            }
         }
     }
 
@@ -75,6 +79,14 @@ impl<N, E> TreeNode<N, E> {
                 .and_then(|child| child.get_first_node()),
             Self::Node(node, _) => Some(Arc::clone(node)),
             Self::Fragment(children) => {
+                for child in children {
+                    if let Some(node) = child.get_first_node() {
+                        return Some(node);
+                    }
+                }
+                return None;
+            }
+            Self::Provider(_, children) => {
                 for child in children {
                     if let Some(node) = child.get_first_node() {
                         return Some(node);
@@ -131,43 +143,47 @@ where
         object_model.start().await;
         {
             let mut render_queue = RenderQueue::new();
-            render_queue.reload(&mut tree_root, root.clone(), None);
+            render_queue.reload(
+                &mut tree_root,
+                RenderContext::new(root.clone(), None, Arc::default()),
+            );
 
             while let Some(item) = render_queue.next() {
                 println!("rendering item");
                 match item {
-                    RenderQueueItem::Create {
-                        current,
-                        parent,
-                        sibling,
-                    } => match unsafe { &mut *current } {
+                    RenderQueueItem::Create { current, ctx } => match unsafe { &mut *current } {
                         TreeNode::Component(component) => render_component(
                             component,
                             &mut render_queue,
                             &signal_sender,
-                            &parent,
-                            &sibling,
+                            ctx,
                             &spawner,
                         )?,
                         TreeNode::Node(node, children) => {
-                            object_model.create(node, &parent, &sibling);
+                            object_model.create(node, &ctx.parent, &ctx.sibling);
                             for child in children.iter_mut().rev() {
-                                render_queue.create(child, Arc::clone(node), None);
+                                render_queue.create(child, ctx.with_parent(node.clone()));
                             }
                         }
                         TreeNode::Fragment(children) => {
-                            let mut sibling = sibling;
+                            let mut sibling = ctx.sibling.clone();
                             for child in children.iter_mut().rev() {
-                                render_queue.create(child, Arc::clone(&parent), sibling);
+                                render_queue.create(child, ctx.with_sibling(sibling));
+                                sibling = child.get_first_node();
+                            }
+                        }
+                        TreeNode::Provider(value, children) => {
+                            let mut sibling = ctx.sibling.clone();
+                            for child in children.iter_mut().rev() {
+                                render_queue.create(
+                                    child,
+                                    ctx.with_sibling_and_context(sibling, value.clone()),
+                                );
                                 sibling = child.get_first_node();
                             }
                         }
                     },
-                    RenderQueueItem::Reload {
-                        current,
-                        parent,
-                        sibling,
-                    } => match unsafe { &mut *current } {
+                    RenderQueueItem::Reload { current, ctx } => match unsafe { &mut *current } {
                         TreeNode::Component(component) => {
                             dbg!("reload component");
                             if component.updates.is_empty() {
@@ -176,11 +192,7 @@ where
                                         RunOrSuspendResult::Suspend(render_result) => {
                                             component.render_result = Some(render_result);
                                             if let Some(ref mut child) = component.child {
-                                                render_queue.reload(
-                                                    child.as_mut(),
-                                                    parent,
-                                                    sibling,
-                                                );
+                                                render_queue.reload(child.as_mut(), ctx);
                                             }
                                         }
                                         RunOrSuspendResult::Done((result, hook)) => {
@@ -188,32 +200,22 @@ where
                                                 .queue_effects(&component.component, hook.effects);
                                             component.refs = hook.refs;
                                             if let Some(ref mut child) = component.child {
-                                                render_queue.update(
-                                                    child.as_mut(),
-                                                    result?,
-                                                    parent,
-                                                    sibling,
-                                                );
+                                                render_queue.update(child.as_mut(), result?, ctx);
                                             } else {
                                                 let mut child = Box::new(TreeNode::from(result?));
-                                                render_queue.create(
-                                                    child.as_mut(),
-                                                    parent,
-                                                    sibling,
-                                                );
+                                                render_queue.create(child.as_mut(), ctx);
                                                 component.child = Some(child);
                                             }
                                         }
                                     }
                                 } else if let Some(ref mut child) = component.child {
-                                    render_queue.reload(child.as_mut(), parent, sibling);
+                                    render_queue.reload(child.as_mut(), ctx);
                                 } else {
                                     render_component(
                                         component,
                                         &mut render_queue,
                                         &signal_sender,
-                                        &parent,
-                                        &sibling,
+                                        ctx,
                                         &spawner,
                                     )?
                                 }
@@ -222,8 +224,7 @@ where
                                     component,
                                     &mut render_queue,
                                     &signal_sender,
-                                    &parent,
-                                    &sibling,
+                                    ctx,
                                     &spawner,
                                 )?
                             }
@@ -232,24 +233,32 @@ where
                             dbg!("reload node");
                             let mut sibling = None;
                             for child in children.iter_mut().rev() {
-                                render_queue.reload(child, node.clone(), sibling);
+                                render_queue.reload(
+                                    child,
+                                    ctx.with_parent_and_sibling(node.clone(), sibling),
+                                );
                                 sibling = child.get_first_node();
                             }
                         }
                         TreeNode::Fragment(children) => {
-                            let mut sibling = sibling;
+                            let mut sibling = ctx.sibling.clone();
                             for child in children.iter_mut().rev() {
-                                render_queue.reload(child, parent.clone(), sibling);
+                                render_queue.reload(child, ctx.with_sibling(sibling));
+                                sibling = child.get_first_node();
+                            }
+                        }
+                        TreeNode::Provider(value, children) => {
+                            let mut sibling = ctx.sibling.clone();
+                            for child in children.iter_mut().rev() {
+                                render_queue.reload(
+                                    child,
+                                    ctx.with_sibling_and_context(sibling, value.clone()),
+                                );
                                 sibling = child.get_first_node();
                             }
                         }
                     },
-                    RenderQueueItem::Update {
-                        current,
-                        next,
-                        parent,
-                        sibling,
-                    } => {
+                    RenderQueueItem::Update { current, next, ctx } => {
                         dbg!("update item");
                         let current_node = unsafe { &mut *current };
                         match (current_node, next) {
@@ -259,7 +268,7 @@ where
                             ) => match next_component.compare(current_component.component.as_any())
                             {
                                 ComponentDiff::Equal => {
-                                    render_queue.reload(unsafe { &mut *current }, parent, sibling)
+                                    render_queue.reload(unsafe { &mut *current }, ctx)
                                 }
                                 ComponentDiff::NewProps => {
                                     render_queue.move_cleanups(
@@ -271,8 +280,7 @@ where
                                         current_component,
                                         &mut render_queue,
                                         &signal_sender,
-                                        &parent,
-                                        &sibling,
+                                        ctx,
                                         &spawner,
                                     )?;
                                 }
@@ -282,8 +290,7 @@ where
                                         unsafe { &mut *current },
                                         Element::Component(next_component),
                                         &mut render_queue,
-                                        parent,
-                                        sibling,
+                                        ctx,
                                     );
                                 }
                             },
@@ -298,8 +305,7 @@ where
                                     current_children,
                                     next_children,
                                     &mut render_queue,
-                                    &next,
-                                    &None,
+                                    ctx.with_parent(next),
                                 );
                             }
                             (
@@ -309,14 +315,22 @@ where
                                 current_children,
                                 next_children,
                                 &mut render_queue,
-                                &parent,
-                                &sibling,
+                                ctx,
+                            ),
+                            (
+                                TreeNode::Provider(_, current_children),
+                                Element::Provider(next_value, next_children),
+                            ) => update_children(
+                                current_children,
+                                next_children,
+                                &mut render_queue,
+                                ctx.with_context(next_value),
                             ),
                             (current_node, next) => {
                                 if let TreeNode::Component(current_component) = current_node {
                                     render_queue.queue_cleanups(&current_component.component);
                                 }
-                                replace_node(current_node, next, &mut render_queue, parent, sibling)
+                                replace_node(current_node, next, &mut render_queue, ctx)
                             }
                         }
                     }
@@ -338,6 +352,11 @@ where
                                 render_queue.remove(child, Arc::clone(&parent));
                             }
                         }
+                        TreeNode::Provider(_, children) => {
+                            for child in children {
+                                render_queue.remove(child, Arc::clone(&parent));
+                            }
+                        }
                     },
                 }
             }
@@ -354,13 +373,12 @@ fn update_children<N, E>(
     tree_nodes: &mut Vec<TreeNode<N, E>>,
     mut elements: Vec<Element<N, E>>,
     render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
-    parent: &Arc<N>,
-    sibling: &Option<Arc<N>>,
+    ctx: RenderContext<N>,
 ) {
     let old_len = tree_nodes.len();
 
     for tree_node in tree_nodes.drain(elements.len()..).rev() {
-        render_queue.remove(tree_node, parent.clone());
+        render_queue.remove(tree_node, ctx.parent.clone());
     }
 
     tree_nodes.shrink_to_fit();
@@ -370,13 +388,13 @@ fn update_children<N, E>(
     }
 
     for tree_node in tree_nodes.iter_mut().skip(old_len).rev() {
-        render_queue.create(tree_node, parent.clone(), sibling.clone());
+        render_queue.create(tree_node, ctx.clone());
     }
 
-    let mut sibling = sibling.clone();
+    let mut sibling = ctx.sibling.clone();
     for (tree_node, element) in tree_nodes.iter_mut().zip(elements.into_iter()).rev() {
         let next_sibling = tree_node.get_first_node();
-        render_queue.update(tree_node, element, parent.clone(), sibling.clone());
+        render_queue.update(tree_node, element, ctx.with_sibling(sibling));
         sibling = next_sibling;
     }
 }
@@ -385,8 +403,7 @@ fn render_component<N, E, S>(
     tree_component: &mut TreeComponent<N, E>,
     render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
     signal_sender: &Sender<()>,
-    parent: &Arc<N>,
-    sibling: &Option<Arc<N>>,
+    ctx: RenderContext<N>,
     spawner: &S,
 ) -> Result<(), E>
 where
@@ -405,6 +422,7 @@ where
         tree_component.updater.clone(),
         tree_component.state.clone(),
         tree_component.refs.clone(),
+        ctx.context.clone(),
     );
     let result = run_or_suspend(Box::pin(async_context::provide_async_context(
         hook,
@@ -415,13 +433,11 @@ where
         RunOrSuspendResult::Done((element, hook)) => {
             tree_component.render_result = None;
             match tree_component.child {
-                Some(ref mut node) => {
-                    render_queue.update(node.as_mut(), element?, parent.clone(), sibling.clone())
-                }
+                Some(ref mut node) => render_queue.update(node.as_mut(), element?, ctx.clone()),
                 None => {
                     let tree_node = TreeNode::from(element?);
                     let mut child = Box::new(tree_node);
-                    render_queue.create(child.as_mut(), parent.clone(), sibling.clone());
+                    render_queue.create(child.as_mut(), ctx.clone());
                     tree_component.child = Some(child);
                 }
             }
@@ -447,13 +463,12 @@ fn replace_node<N, E>(
     node: &mut TreeNode<N, E>,
     element: Element<N, E>,
     render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
-    parent: Arc<N>,
-    sibling: Option<Arc<N>>,
+    ctx: RenderContext<N>,
 ) {
     let mut old_node = TreeNode::from(element);
     std::mem::swap(node, &mut old_node);
-    render_queue.create(node, Arc::clone(&parent), sibling);
-    render_queue.remove(old_node, parent);
+    render_queue.remove(old_node, ctx.parent.clone());
+    render_queue.create(node, ctx);
 }
 
 #[cfg(test)]

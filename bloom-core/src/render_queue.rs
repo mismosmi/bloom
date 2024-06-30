@@ -1,27 +1,99 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use crate::{
     component::AnyComponent,
+    context::ContextMap,
     effect::{Cleanup, Effect},
     Element,
 };
 
+pub(crate) struct RenderContext<N> {
+    pub(crate) parent: Arc<N>,
+    pub(crate) sibling: Option<Arc<N>>,
+    pub(crate) context: ContextMap,
+}
+
+impl<N> Clone for RenderContext<N> {
+    fn clone(&self) -> Self {
+        Self {
+            parent: self.parent.clone(),
+            sibling: self.sibling.clone(),
+            context: self.context.clone(),
+        }
+    }
+}
+
+impl<N> RenderContext<N> {
+    pub(crate) fn new(parent: Arc<N>, sibling: Option<Arc<N>>, context: ContextMap) -> Self {
+        Self {
+            parent,
+            sibling,
+            context,
+        }
+    }
+
+    pub(crate) fn with_parent(&self, parent: Arc<N>) -> Self {
+        Self {
+            parent,
+            sibling: None,
+            context: self.context.clone(),
+        }
+    }
+
+    pub(crate) fn with_parent_and_sibling(&self, parent: Arc<N>, sibling: Option<Arc<N>>) -> Self {
+        Self {
+            parent,
+            sibling,
+            context: self.context.clone(),
+        }
+    }
+
+    pub(crate) fn with_sibling(&self, sibling: Option<Arc<N>>) -> Self {
+        Self {
+            parent: self.parent.clone(),
+            sibling,
+            context: self.context.clone(),
+        }
+    }
+
+    pub(crate) fn with_context(&self, value: Arc<dyn Any + Send + Sync>) -> Self {
+        let mut new_context = self.context.as_ref().clone();
+        new_context.insert(value.type_id(), value);
+        Self {
+            parent: self.parent.clone(),
+            sibling: self.sibling.clone(),
+            context: Arc::new(new_context),
+        }
+    }
+
+    pub(crate) fn with_sibling_and_context(
+        &self,
+        sibling: Option<Arc<N>>,
+        value: Arc<dyn Any + Send + Sync>,
+    ) -> Self {
+        let mut new_context = self.context.as_ref().clone();
+        new_context.insert(value.type_id(), value);
+        Self {
+            parent: self.parent.clone(),
+            sibling,
+            context: Arc::new(new_context),
+        }
+    }
+}
+
 pub(crate) enum RenderQueueItem<N, E, TN> {
     Create {
         current: *mut TN,
-        parent: Arc<N>,
-        sibling: Option<Arc<N>>,
+        ctx: RenderContext<N>,
     },
     Reload {
         current: *mut TN,
-        parent: Arc<N>,
-        sibling: Option<Arc<N>>,
+        ctx: RenderContext<N>,
     },
     Update {
         current: *mut TN,
         next: Element<N, E>,
-        parent: Arc<N>,
-        sibling: Option<Arc<N>>,
+        ctx: RenderContext<N>,
     },
     Remove {
         current: TN,
@@ -46,34 +118,22 @@ impl<N, E, TN> RenderQueue<N, E, TN> {
         }
     }
 
-    pub(crate) fn create(&mut self, current: &mut TN, parent: Arc<N>, sibling: Option<Arc<N>>) {
+    pub(crate) fn create(&mut self, current: &mut TN, ctx: RenderContext<N>) {
         self.queue.push(RenderQueueItem::Create {
             current: current as *mut TN,
-            parent,
-            sibling,
+            ctx,
         })
     }
 
-    pub(crate) fn reload(&mut self, current: &mut TN, parent: Arc<N>, sibling: Option<Arc<N>>) {
-        self.queue.push(RenderQueueItem::Reload {
-            current,
-            parent,
-            sibling,
-        })
+    pub(crate) fn reload(&mut self, current: &mut TN, ctx: RenderContext<N>) {
+        self.queue.push(RenderQueueItem::Reload { current, ctx })
     }
 
-    pub(crate) fn update(
-        &mut self,
-        current: &mut TN,
-        next: Element<N, E>,
-        parent: Arc<N>,
-        sibling: Option<Arc<N>>,
-    ) {
+    pub(crate) fn update(&mut self, current: &mut TN, next: Element<N, E>, ctx: RenderContext<N>) {
         self.queue.push(RenderQueueItem::Update {
             current: current as *mut TN,
             next,
-            parent,
-            sibling,
+            ctx,
         })
     }
 
@@ -171,7 +231,10 @@ mod tests {
 
         let mut queue = RenderQueue::<(), (), TreeNode>::new();
 
-        queue.reload(&mut root, Arc::new(()), None);
+        queue.reload(
+            &mut root,
+            RenderContext::new(Arc::new(()), None, Arc::default()),
+        );
 
         let item = queue.next().unwrap();
 
@@ -179,7 +242,10 @@ mod tests {
             RenderQueueItem::Reload { current, .. } => {
                 assert_eq!(current as *const _, &root as *const _);
 
-                queue.create(child.as_mut(), Arc::new(()), None);
+                queue.create(
+                    child.as_mut(),
+                    RenderContext::new(Arc::new(()), None, Arc::default()),
+                );
                 unsafe {
                     (&mut *current).children.push(child);
                 }

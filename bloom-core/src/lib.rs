@@ -1,4 +1,5 @@
 mod component;
+mod context;
 mod effect;
 mod element;
 mod hook;
@@ -10,6 +11,7 @@ mod state;
 mod suspense;
 
 pub use component::Component;
+pub use context::use_context;
 pub use effect::use_effect;
 pub use element::Element;
 pub use object_ref::use_ref;

@@ -1,11 +1,16 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Weak},
+    future::poll_fn,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Weak,
+    },
+    task::Poll,
 };
 
 use bloom_core::ObjectModel;
 use bloom_html::HtmlNode;
-use futures_util::{future, Future};
+use futures_util::Future;
 use weak_table::PtrWeakKeyHashMap;
 use web_sys::{
     console,
@@ -302,7 +307,26 @@ impl ObjectModel for Dom {
     fn finalize(&mut self) -> impl Future<Output = ()> {
         console::log_1(&"Finalize".into());
         self.hydration_state = None;
-        future::ready(())
+        let ready = Arc::new(AtomicBool::new(false));
+
+        poll_fn(move |cx| {
+            if ready.load(Ordering::Relaxed) {
+                Poll::Ready(())
+            } else {
+                let waker = cx.waker().clone();
+                let ready = ready.clone();
+                let cb = Closure::once_into_js(move || {
+                    ready.store(true, Ordering::Relaxed);
+                    waker.wake();
+                });
+                window()
+                    .expect("Window not found")
+                    .request_animation_frame(cb.dyn_ref().expect("Failed to cast callback"))
+                    .expect("Failed to request animation frame");
+
+                Poll::Pending
+            }
+        })
     }
 }
 
