@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 bloom-core = { path = "../bloom-core" }
 derive_builder = "0.20.0"
+web-sys = { version = "0.3", features = ["Event", "HtmlElement"] }
+weak-table = "0.3.2"

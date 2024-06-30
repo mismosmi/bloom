@@ -4,7 +4,7 @@ use std::{
 };
 
 use bloom_core::ObjectModel;
-use bloom_html::{HtmlEvent, HtmlNode};
+use bloom_html::HtmlNode;
 use futures_util::{future, Future};
 use weak_table::PtrWeakKeyHashMap;
 use web_sys::{
@@ -44,6 +44,10 @@ impl NodeState {
                         .expect("Failed to set attribute");
                 }
 
+                if let Some(dom_ref) = element.dom_ref() {
+                    dom_ref.set(dom_node.clone());
+                }
+
                 Self::Element {
                     callbacks: Self::setup_callbacks(node, &dom_node),
                     node: dom_node,
@@ -59,15 +63,23 @@ impl NodeState {
 
     fn hydrate(node: &Arc<HtmlNode>, dom_node: Node) -> Self {
         match node.as_ref() {
-            HtmlNode::Element(_) => Self::Element {
-                callbacks: Self::setup_callbacks(
-                    node,
-                    dom_node.dyn_ref().expect("Expected Element, received Text"),
-                ),
-                node: dom_node
+            HtmlNode::Element(element) => {
+                let dom_node: web_sys::Element = dom_node
                     .dyn_into()
-                    .expect("Expected Element, received Text"),
-            },
+                    .expect("Expected Element, received Text");
+
+                if let Some(dom_ref) = element.dom_ref() {
+                    dom_ref.set(dom_node.clone());
+                }
+
+                Self::Element {
+                    callbacks: Self::setup_callbacks(
+                        node,
+                        dom_node.dyn_ref().expect("Expected Element, received Text"),
+                    ),
+                    node: dom_node,
+                }
+            }
             HtmlNode::Text(_) => Self::Text {
                 node: dom_node
                     .dyn_into()
@@ -90,12 +102,12 @@ impl NodeState {
             let node = node.clone();
             let cloned_key = key.clone();
             let closure: Closure<dyn Fn(web_sys::Event)> =
-                Closure::new(move |_event: web_sys::Event| {
+                Closure::new(move |event: web_sys::Event| {
                     if let Some(callback) = node
                         .as_element()
                         .and_then(|el| el.callbacks().get(&cloned_key))
                     {
-                        callback(HtmlEvent);
+                        callback(event);
                     }
                 });
             dom_node

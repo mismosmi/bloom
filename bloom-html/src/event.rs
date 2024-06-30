@@ -1,4 +1,4 @@
-pub struct HtmlEvent;
+pub type HtmlEvent = web_sys::Event;
 
 pub type EventHandler = Box<dyn Fn(HtmlEvent) + Send + Sync + 'static>;
 

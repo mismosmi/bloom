@@ -2,10 +2,10 @@ use std::{panic, sync::Arc};
 
 use async_trait::async_trait;
 use bloom_client::{get_element_by_id, render};
-use bloom_core::{use_state, Component, Element};
+use bloom_core::{use_effect, use_ref, use_state, Component, Element};
 use bloom_html::{
     tag::{button, div},
-    text, HtmlNode,
+    text, DomRef, HtmlNode,
 };
 use wasm_bindgen::prelude::*;
 use web_sys::console;
@@ -35,10 +35,17 @@ impl Component for ExampleApp {
     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
         console::log_1(&"Rendering ExampleApp".into());
         console::log_1(&format!("{:?}", div().build()).into());
+        let hello_world_ref: Arc<DomRef> = use_ref();
+
+        use_effect(hello_world_ref.clone(), |node| {
+            console::log_2(&"hello world div".into(), &node.get().unwrap());
+        });
 
         let counter = use_state::<i32>();
         Ok(div().children(vec![
-            div().children(vec![text("Hello, World!")]),
+            div()
+                .dom_ref(hello_world_ref)
+                .children(vec![text("Hello, World!")]),
             div().children(vec![text(counter.to_string())]),
             button()
                 .on("click", move |_| {

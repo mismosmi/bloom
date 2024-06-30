@@ -10,7 +10,6 @@ use futures_util::{
 use crate::{
     component::{AnyComponent, ComponentDiff},
     hook::Hook,
-    object_ref::{clone_object_ref, AnyObjectRef},
     render_queue::{RenderQueue, RenderQueueItem},
     state::StateUpdate,
     suspense::{run_or_suspend, RunOrSuspendResult},
@@ -24,7 +23,7 @@ pub(crate) struct TreeComponent<N, E> {
     updater: Sender<StateUpdate>,
     render_result: Option<Pin<Box<dyn Future<Output = (Result<Element<N, E>, E>, Hook)> + Send>>>,
     child: Option<Box<TreeNode<N, E>>>,
-    refs: HashMap<u16, Box<dyn AnyObjectRef + Send + Sync + 'static>>,
+    refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
 }
 
 impl<N, E> TreeComponent<N, E> {
@@ -405,11 +404,7 @@ where
         signal_sender.clone(),
         tree_component.updater.clone(),
         tree_component.state.clone(),
-        tree_component
-            .refs
-            .iter()
-            .map(|(k, v)| (*k, clone_object_ref(v)))
-            .collect(),
+        tree_component.refs.clone(),
     );
     let result = run_or_suspend(Box::pin(async_context::provide_async_context(
         hook,

@@ -5,7 +5,6 @@ use std::sync::Arc;
 use async_channel::Sender;
 
 use crate::effect::Effect;
-use crate::object_ref::AnyObjectRef;
 use crate::state::StateUpdate;
 
 pub(crate) struct Hook {
@@ -14,7 +13,7 @@ pub(crate) struct Hook {
     pub(crate) state: HashMap<u16, Arc<dyn Any + Send + Sync>>,
     pub(crate) state_index: u16,
     pub(crate) effects: Vec<(u64, Effect)>,
-    pub(crate) refs: HashMap<u16, Box<dyn AnyObjectRef + Send + Sync + 'static>>,
+    pub(crate) refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
     pub(crate) ref_index: u16,
 }
 
@@ -23,7 +22,7 @@ impl Hook {
         signal: Sender<()>,
         updater: Sender<StateUpdate>,
         state: HashMap<u16, Arc<dyn Any + Send + Sync>>,
-        refs: HashMap<u16, Box<dyn AnyObjectRef + Send + Sync + 'static>>,
+        refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
     ) -> Self {
         Self {
             updater,

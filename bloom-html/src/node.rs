@@ -1,9 +1,70 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt::Debug,
+    hash::Hash,
+    sync::{
+        atomic::{AtomicU16, Ordering},
+        Arc,
+    },
+};
 
 use bloom_core::Element;
 use derive_builder::Builder;
 
 use crate::event::{EventHandler, HtmlEvent};
+
+#[derive(Debug, Default)]
+pub struct DomRef(AtomicU16);
+
+thread_local! {
+    static HTML_ELEMENT_MAP: RefCell<HashMap<u16, web_sys::Element>> = RefCell::new(HashMap::new());
+}
+
+impl DomRef {
+    pub fn set(&self, element: web_sys::Element) {
+        HTML_ELEMENT_MAP.with(|map| {
+            let mut map = map.borrow_mut();
+            let current_key = self.0.load(Ordering::Relaxed);
+            let key = if current_key != 0 {
+                current_key
+            } else {
+                let mut key = 1;
+                while map.contains_key(&key) {
+                    key += 1;
+                    if key == u16::MAX {
+                        panic!("Element Map Overflow");
+                    }
+                }
+                self.0.store(key, Ordering::Relaxed);
+                key
+            };
+            map.insert(key, element);
+        });
+    }
+
+    pub fn get(&self) -> Option<web_sys::Element> {
+        HTML_ELEMENT_MAP.with(|map| {
+            map.borrow()
+                .get(&self.0.load(Ordering::Relaxed))
+                .map(|element| element.clone())
+        })
+    }
+}
+
+impl Drop for DomRef {
+    fn drop(&mut self) {
+        HTML_ELEMENT_MAP.with(|map| {
+            map.borrow_mut().remove(&self.0.load(Ordering::Relaxed));
+        });
+    }
+}
+
+impl Hash for DomRef {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.load(Ordering::Relaxed).hash(state);
+    }
+}
 
 #[derive(Builder)]
 #[builder(pattern = "owned")]
@@ -13,6 +74,8 @@ pub struct HtmlElement {
     pub(crate) attributes: HashMap<String, String>,
     #[builder(default)]
     pub(crate) callbacks: HashMap<String, EventHandler>,
+    #[builder(default, setter(into))]
+    pub(crate) dom_ref: Option<Arc<DomRef>>,
 }
 
 impl Debug for HtmlElement {
@@ -21,6 +84,7 @@ impl Debug for HtmlElement {
             .field("tag_name", &self.tag_name)
             .field("attributes", &self.attributes)
             .field("callbacks", &"Callbacks")
+            .field("dom_ref", &self.dom_ref)
             .finish()
     }
 }
@@ -36,6 +100,10 @@ impl HtmlElement {
 
     pub fn callbacks(&self) -> &HashMap<String, EventHandler> {
         &self.callbacks
+    }
+
+    pub fn dom_ref(&self) -> &Option<Arc<DomRef>> {
+        &self.dom_ref
     }
 }
 
