@@ -211,3 +211,13 @@ impl HtmlNode {
         Element::Node(self, children)
     }
 }
+
+impl From<String> for HtmlNode {
+    fn from(value: String) -> Self {
+        Self::Text(value)
+    }
+}
+
+pub fn tag(tag_name: &'static str) -> HtmlElementBuilder<&'static str> {
+    HtmlElement::new().tag_name(tag_name)
+}

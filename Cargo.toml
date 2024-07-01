@@ -8,4 +8,7 @@ members = [
     "bloom-client",
     "bloom-client-example",
     "bloom-server-example",
+    "bloom-rsx",
 ]
+
+resolver = "2"

@@ -16,7 +16,10 @@ use crate::{
     Element,
 };
 
-pub(crate) struct TreeComponent<N, E> {
+pub(crate) struct TreeComponent<N, E>
+where
+    N: From<String>,
+{
     component: Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>,
     state: HashMap<u16, Arc<dyn Any + Send + Sync>>,
     updates: Receiver<StateUpdate>,
@@ -26,7 +29,10 @@ pub(crate) struct TreeComponent<N, E> {
     refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
 }
 
-impl<N, E> TreeComponent<N, E> {
+impl<N, E> TreeComponent<N, E>
+where
+    N: From<String>,
+{
     fn new(component: Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>) -> Self {
         let (update_sender, update_receiver) = unbounded::<StateUpdate>();
         Self {
@@ -41,14 +47,20 @@ impl<N, E> TreeComponent<N, E> {
     }
 }
 
-pub(crate) enum TreeNode<N, E> {
+pub(crate) enum TreeNode<N, E>
+where
+    N: From<String>,
+{
     Component(TreeComponent<N, E>),
     Node(Arc<N>, Vec<TreeNode<N, E>>),
     Fragment(Vec<TreeNode<N, E>>),
     Provider(Arc<dyn Any + Send + Sync>, Vec<TreeNode<N, E>>),
 }
 
-impl<N, E> TreeNode<N, E> {
+impl<N, E> TreeNode<N, E>
+where
+    N: From<String>,
+{
     fn from(element: Element<N, E>) -> Self {
         match element {
             Element::Component(component) => TreeNode::Component(TreeComponent::new(component)),
@@ -125,7 +137,7 @@ pub async fn render_loop<N, E, S, P>(
     mut object_model: P,
 ) -> Result<(), E>
 where
-    N: Send + 'static,
+    N: From<String> + Send + 'static,
     E: Send + 'static,
     S: Spawn,
     P: ObjectModel<Node = N>,
@@ -374,7 +386,9 @@ fn update_children<N, E>(
     mut elements: Vec<Element<N, E>>,
     render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
     ctx: RenderContext<N>,
-) {
+) where
+    N: From<String>,
+{
     let old_len = tree_nodes.len();
 
     for tree_node in tree_nodes.drain(elements.len()..).rev() {
@@ -407,7 +421,7 @@ fn render_component<N, E, S>(
     spawner: &S,
 ) -> Result<(), E>
 where
-    N: Send + 'static,
+    N: From<String> + Send + 'static,
     E: Send + 'static,
     S: Spawn,
 {
@@ -464,7 +478,9 @@ fn replace_node<N, E>(
     element: Element<N, E>,
     render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
     ctx: RenderContext<N>,
-) {
+) where
+    N: From<String>,
+{
     let mut old_node = TreeNode::from(element);
     std::mem::swap(node, &mut old_node);
     render_queue.remove(old_node, ctx.parent.clone());
@@ -549,6 +565,12 @@ mod tests {
 
     #[derive(Debug, PartialEq)]
     struct MockNode(i32);
+
+    impl From<String> for MockNode {
+        fn from(_value: String) -> Self {
+            MockNode(0)
+        }
+    }
 
     impl ObjectModel for MockObjectModel {
         type Node = MockNode;

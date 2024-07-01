@@ -80,7 +80,7 @@ fn render_element<N, E, S>(
     ctx: RenderContext,
 ) -> Pin<Box<dyn Future<Output = NodeStream<N, E>> + Send>>
 where
-    N: Send + 'static,
+    N: From<String> + Send + 'static,
     E: Send + 'static,
     S: Spawn + Clone + Send + 'static,
 {
@@ -114,7 +114,7 @@ fn render_children<N, E, S>(
     ctx: RenderContext,
 ) -> NodeStream<N, E>
 where
-    N: Send + 'static,
+    N: From<String> + Send + 'static,
     E: Send + 'static,
     S: Spawn + Clone + Send + 'static,
 {
@@ -129,7 +129,7 @@ where
 
 pub fn render_stream<N, E, S>(element: Element<N, E>, spawner: S) -> NodeStream<N, E>
 where
-    N: Send + Sync + 'static,
+    N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
     S: Spawn + Clone + Send + 'static,
 {

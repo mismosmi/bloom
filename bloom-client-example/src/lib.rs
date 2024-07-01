@@ -3,10 +3,8 @@ use std::{panic, sync::Arc};
 use async_trait::async_trait;
 use bloom_client::{get_element_by_id, render};
 use bloom_core::{use_effect, use_ref, use_state, Component, Element};
-use bloom_html::{
-    tag::{button, div},
-    text, DomRef, HtmlNode,
-};
+use bloom_html::{tag, tag::div, DomRef, HtmlNode};
+use bloom_rsx::rsx;
 use wasm_bindgen::prelude::*;
 use web_sys::console;
 
@@ -42,18 +40,16 @@ impl Component for ExampleApp {
         });
 
         let counter = use_state::<i32>();
-        Ok(div().build().children(vec![
-            div()
-                .dom_ref(hello_world_ref)
-                .build()
-                .children(vec![text("Hello, World!")]),
-            div().build().children(vec![text(counter.to_string())]),
-            button()
-                .on("click", move |_| {
-                    counter.update(|count| Arc::new(*count + 1))
-                })
-                .build()
-                .children(vec![text("Increase")]),
-        ]))
+        Ok(rsx!(
+            <div>
+                <div ref=hello_world_ref>
+                    "Hello, World!"
+                </div>
+                <div>{counter.to_string()}</div>
+                <button on_click=move |_| counter.update(|count| *count + 1)>
+                    "Increase"
+                </button>
+            </div>
+        ))
     }
 }

@@ -4,7 +4,7 @@ pub mod tag;
 
 use bloom_core::Element;
 pub use event::EventHandler;
-pub use node::{DomRef, HtmlElement, HtmlNode};
+pub use node::{tag, DomRef, HtmlElement, HtmlNode};
 
 pub fn text<E, T>(text: T) -> Element<HtmlNode, E>
 where

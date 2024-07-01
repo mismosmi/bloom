@@ -3,7 +3,7 @@ use std::{any::Any, collections::HashMap, ops::Deref, sync::Arc};
 use async_channel::{bounded, Sender};
 use async_context::with_async_context_mut;
 
-use crate::hook::Hook;
+use crate::{hook::Hook, Element};
 
 pub(crate) struct StateUpdate {
     update: Box<
@@ -39,6 +39,17 @@ impl<T> Deref for State<T> {
 
     fn deref(&self) -> &Self::Target {
         self.value.as_ref()
+    }
+}
+
+impl<N, E, T> From<State<T>> for Element<N, E>
+where
+    N: From<String>,
+    T: ToString,
+{
+    fn from(value: State<T>) -> Self {
+        let value: &T = &value;
+        Element::Node(N::from(value.to_string()), Vec::new())
     }
 }
 

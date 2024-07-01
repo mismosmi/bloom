@@ -5,13 +5,14 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait Component: PartialEq<Self> + Send + Sync {
-    type Node;
+    type Node: From<String>;
     type Error;
     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error>;
 }
 
 impl<N, E, C> From<C> for Element<N, E>
 where
+    N: From<String>,
     C: Component<Node = N, Error = E> + Sized + 'static,
 {
     fn from(component: C) -> Self {
@@ -28,7 +29,7 @@ pub enum ComponentDiff {
 
 #[async_trait]
 pub trait AnyComponent {
-    type Node;
+    type Node: From<String>;
     type Error;
 
     fn compare(&self, other: &dyn Any) -> ComponentDiff;
@@ -66,7 +67,10 @@ where
     }
 }
 
-impl<N, E> PartialEq for &(dyn AnyComponent<Node = N, Error = E> + 'static) {
+impl<N, E> PartialEq for &(dyn AnyComponent<Node = N, Error = E> + 'static)
+where
+    N: From<String>,
+{
     fn eq(&self, other: &Self) -> bool {
         self.compare(other.as_any()) == ComponentDiff::Equal
     }

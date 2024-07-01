@@ -22,7 +22,10 @@ impl Provider {
         }
     }
 
-    pub fn children<N, E>(self, children: Vec<Element<N, E>>) -> Element<N, E> {
+    pub fn children<N, E>(self, children: Vec<Element<N, E>>) -> Element<N, E>
+    where
+        N: From<String>,
+    {
         Element::Provider(self.value, children)
     }
 }

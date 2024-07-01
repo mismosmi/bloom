@@ -81,7 +81,10 @@ impl<N> RenderContext<N> {
     }
 }
 
-pub(crate) enum RenderQueueItem<N, E, TN> {
+pub(crate) enum RenderQueueItem<N, E, TN>
+where
+    N: From<String>,
+{
     Create {
         current: *mut TN,
         ctx: RenderContext<N>,
@@ -101,14 +104,20 @@ pub(crate) enum RenderQueueItem<N, E, TN> {
     },
 }
 
-pub(crate) struct RenderQueue<N, E, TN> {
+pub(crate) struct RenderQueue<N, E, TN>
+where
+    N: From<String>,
+{
     queue: Vec<RenderQueueItem<N, E, TN>>,
     effects: HashMap<*const (), Vec<(u64, Effect)>>,
     cleanups: HashMap<*const (), Vec<(u64, Cleanup)>>,
     clear_cleanups: Vec<*const ()>,
 }
 
-impl<N, E, TN> RenderQueue<N, E, TN> {
+impl<N, E, TN> RenderQueue<N, E, TN>
+where
+    N: From<String>,
+{
     pub(crate) fn new() -> Self {
         Self {
             queue: Vec::new(),
@@ -229,11 +238,11 @@ mod tests {
             children: Vec::new(),
         });
 
-        let mut queue = RenderQueue::<(), (), TreeNode>::new();
+        let mut queue = RenderQueue::<String, (), TreeNode>::new();
 
         queue.reload(
             &mut root,
-            RenderContext::new(Arc::new(()), None, Arc::default()),
+            RenderContext::new(Arc::new("".to_string()), None, Arc::default()),
         );
 
         let item = queue.next().unwrap();
@@ -244,7 +253,7 @@ mod tests {
 
                 queue.create(
                     child.as_mut(),
-                    RenderContext::new(Arc::new(()), None, Arc::default()),
+                    RenderContext::new(Arc::new("".to_string()), None, Arc::default()),
                 );
                 unsafe {
                     (&mut *current).children.push(child);
