@@ -12,3 +12,7 @@ where
 {
     Element::Node(HtmlNode::text(text.to_string()), Vec::new())
 }
+
+pub mod prelude {
+    pub use super::tag;
+}

@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::Expr;
-use syn_rsx::{parse2, Node};
+use syn::{Expr, ExprPath};
+use syn_rsx::{parse2, Node, NodeName};
 
 #[proc_macro]
 pub fn rsx(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -12,39 +12,29 @@ pub fn rsx(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 fn transform_node(node: Node) -> TokenStream {
     match node {
-        Node::Element(element) => {
-            let tag = element.name.to_string();
-
-            if tag.chars().nth(0).unwrap().is_uppercase() {
-                let attributes = transform_props(element.attributes);
-                let children = if element.children.is_empty() {
-                    TokenStream::new()
-                } else {
-                    let children = transform_children(element.children);
-                    quote! {
-                        .children(#children)
-                    }
-                };
-                quote! {
-                    <#tag>::new()#children #attributes.build().into()
-                }
-            } else {
-                let attributes = transform_attributes(element.attributes);
-                let children = if element.children.is_empty() {
-                    quote! {
-                        .into()
+        Node::Element(element) => match &element.name {
+            NodeName::Block(_) => transform_tag(element.name, element.attributes, element.children),
+            NodeName::Path(path) => {
+                if let Some(ident) = path.path.get_ident() {
+                    if ident
+                        .to_string()
+                        .chars()
+                        .nth(0)
+                        .expect("Cannot render empty identifier")
+                        .is_lowercase()
+                    {
+                        transform_tag(element.name, element.attributes, element.children)
+                    } else {
+                        transform_component(path, element.attributes, element.children)
                     }
                 } else {
-                    let children = transform_children(element.children);
-                    quote! {
-                        .children(#children)
-                    }
-                };
-                quote! {
-                    tag(#tag)#attributes.build()#children
+                    transform_component(path, element.attributes, element.children)
                 }
             }
-        }
+            NodeName::Punctuated(_) => {
+                transform_tag(element.name, element.attributes, element.children)
+            }
+        },
         Node::Attribute(_) => {
             panic!("Invalid attribute")
         }
@@ -140,6 +130,39 @@ fn transform_children(nodes: Vec<Node>) -> proc_macro2::TokenStream {
     }
 }
 
+fn transform_component(tag: &ExprPath, attributes: Vec<Node>, children: Vec<Node>) -> TokenStream {
+    let attributes = transform_props(attributes);
+    let children = if children.is_empty() {
+        TokenStream::new()
+    } else {
+        let children = transform_children(children);
+        quote! {
+            .children(#children)
+        }
+    };
+    quote! {
+        <#tag>::new()#children #attributes.build().into()
+    }
+}
+
+fn transform_tag(tag: NodeName, attributes: Vec<Node>, children: Vec<Node>) -> TokenStream {
+    let attributes = transform_attributes(attributes);
+    let children = if children.is_empty() {
+        quote! {
+            .into()
+        }
+    } else {
+        let children = transform_children(children);
+        quote! {
+            .children(#children)
+        }
+    };
+    let tag = tag.to_string();
+    quote! {
+        tag(#tag)#attributes.build()#children
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use quote::quote;
@@ -153,7 +176,6 @@ mod tests {
                 .nth(0)
                 .unwrap(),
         );
-        dbg!(actual.to_string());
         assert_eq!(
             actual.to_string(),
             "\"hello world\" . to_string () . into ()"
@@ -173,5 +195,21 @@ mod tests {
             actual.to_string(),
             "tag (\"div\") . dom_ref ({ my_ref }) . build () . into ()"
         );
+    }
+
+    #[test]
+    fn render_component() {
+        let actual = super::transform_node(
+            syn_rsx::parse2(quote! {
+                <MyComponent number_prop=123 boolean_prop>
+                  <div id="child" />
+                </MyComponent>
+            })
+            .unwrap()
+            .into_iter()
+            .nth(0)
+            .unwrap(),
+        );
+        assert_eq!(actual.to_string(), "< MyComponent > :: new () . children ({ let mut children = Vec :: with_capacity (1usize) ; children . push (tag (\"div\") . attr (\"id\" , \"child\") . build () . into ()) ; children . into () }) . \"number_prop\" (123) . \"boolean_prop\" (true) . build () . into ()")
     }
 }

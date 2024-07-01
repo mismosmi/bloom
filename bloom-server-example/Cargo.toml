@@ -12,6 +12,7 @@ async-trait = "0.1.80"
 bloom-client = { version = "0.1.0", path = "../bloom-client" }
 bloom-core = { version = "0.1.0", path = "../bloom-core" }
 bloom-html = { version = "0.1.0", path = "../bloom-html" }
+bloom-rsx = { version = "0.1.0", path = "../bloom-rsx" }
 bloom-server = { version = "0.1.0", path = "../bloom-server" }
 builder-pattern = "0.4.2"
 futures-util = "0.3.30"
