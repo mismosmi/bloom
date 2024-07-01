@@ -1,6 +1,8 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Expr, ExprPath};
+use syn::{
+    parse_macro_input, token::Struct, Data, DataStruct, DeriveInput, Expr, ExprPath, Fields,
+};
 use syn_rsx::{parse2, Node, NodeName};
 
 #[proc_macro]
@@ -161,6 +163,34 @@ fn transform_tag(tag: NodeName, attributes: Vec<Node>, children: Vec<Node>) -> T
     quote! {
         tag(#tag)#attributes.build()#children
     }
+}
+
+#[proc_macro_derive(NoopBuilder)]
+pub fn derive_noop_builder(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let DeriveInput { ident, data, .. } = parse_macro_input!(item);
+
+    if let Data::Struct(DataStruct { fields, .. }) = data {
+        assert_eq!(
+            fields,
+            Fields::Unit,
+            "NoopBuilder can only be derived for unit structs"
+        );
+    } else {
+        panic!("NoopBuilder can only be derived for unit structs")
+    }
+
+    quote! {
+        impl #ident {
+            fn new() -> Self {
+                Self
+            }
+
+            fn build(self) -> Self {
+                self
+            }
+        }
+    }
+    .into()
 }
 
 #[cfg(test)]

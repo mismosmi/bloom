@@ -4,21 +4,11 @@ use async_trait::async_trait;
 use bloom_client::get_element_by_id;
 use bloom_core::{use_state, Component, Element};
 use bloom_html::{prelude::*, HtmlNode};
-use bloom_rsx::rsx;
+use bloom_rsx::{rsx, NoopBuilder};
 use builder_pattern::Builder;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, NoopBuilder)]
 struct HydrationPage;
-
-impl HydrationPage {
-    fn new() -> Self {
-        Self
-    }
-
-    fn build(self) -> Self {
-        self
-    }
-}
 
 #[async_trait]
 impl Component for HydrationPage {
