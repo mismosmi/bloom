@@ -1,8 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{
-    parse_macro_input, token::Struct, Data, DataStruct, DeriveInput, Expr, ExprPath, Fields,
-};
+use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Expr, ExprPath, Fields};
 use syn_rsx::{parse2, Node, NodeName};
 
 #[proc_macro]

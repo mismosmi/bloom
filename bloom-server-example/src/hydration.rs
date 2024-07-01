@@ -5,7 +5,6 @@ use bloom_client::get_element_by_id;
 use bloom_core::{use_state, Component, Element};
 use bloom_html::{prelude::*, HtmlNode};
 use bloom_rsx::{rsx, NoopBuilder};
-use builder_pattern::Builder;
 
 #[derive(PartialEq, NoopBuilder)]
 struct HydrationPage;
