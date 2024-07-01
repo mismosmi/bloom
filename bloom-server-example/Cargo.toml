@@ -3,12 +3,21 @@ name = "bloom-server-example"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
-axum = "0.7.5"
+anyhow = "1.0.86"
+async-trait = "0.1.80"
+bloom-client = { version = "0.1.0", path = "../bloom-client" }
 bloom-core = { version = "0.1.0", path = "../bloom-core" }
 bloom-html = { version = "0.1.0", path = "../bloom-html" }
 bloom-server = { version = "0.1.0", path = "../bloom-server" }
-derive_builder = "0.20.0"
+builder-pattern = "0.4.2"
 futures-util = "0.3.30"
 serde = { version = "1.0.203", features = ["derive"] }
+wasm-bindgen = "0.2.92"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+axum = "0.7.5"
 tokio = { version = "1.38.0", features = ["rt-multi-thread"] }

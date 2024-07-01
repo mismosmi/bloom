@@ -182,9 +182,11 @@ impl ObjectModel for Dom {
         parent: &std::sync::Arc<Self::Node>,
         sibling: &Option<std::sync::Arc<Self::Node>>,
     ) {
+        console::log_1(&format!("Create {:?}", node).into());
         let parent_state = self.nodes.get(parent).expect("Parent not found");
 
         if let Some(hydration_state) = &mut self.hydration_state {
+            console::log_1(&"Hydrate".into());
             let hydration_index = hydration_state.get(parent).cloned().unwrap_or(0);
 
             let existing_node = parent_state

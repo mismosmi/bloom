@@ -1,13 +1,17 @@
 use crate::{node::HtmlElementBuilder, HtmlNode};
 
-pub fn div() -> HtmlElementBuilder {
-    HtmlNode::element("div".to_string())
+pub fn div() -> HtmlElementBuilder<&'static str> {
+    HtmlNode::element("div")
 }
 
-pub fn span() -> HtmlElementBuilder {
-    HtmlNode::element("span".to_string())
+pub fn span() -> HtmlElementBuilder<&'static str> {
+    HtmlNode::element("span")
 }
 
-pub fn button() -> HtmlElementBuilder {
-    HtmlNode::element("button".to_string())
+pub fn button() -> HtmlElementBuilder<&'static str> {
+    HtmlNode::element("button")
+}
+
+pub fn script() -> HtmlElementBuilder<&'static str> {
+    HtmlNode::element("script")
 }

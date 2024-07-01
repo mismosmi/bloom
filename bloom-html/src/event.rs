@@ -1,6 +1,4 @@
-pub type HtmlEvent = web_sys::Event;
-
-pub type EventHandler = Box<dyn Fn(HtmlEvent) + Send + Sync + 'static>;
+pub type EventHandler = Box<dyn Fn(web_sys::Event) + Send + Sync + 'static>;
 
 #[cfg(test)]
 mod tests {
@@ -9,12 +7,8 @@ mod tests {
 
     #[test]
     fn build_button() {
-        let button: HtmlElement = button().on("click", |_| {}).build().unwrap();
+        let button: HtmlElement = button().on("click", |_| {}).build();
 
-        let cb = button.callbacks().get("click").unwrap();
-
-        let addr: usize = cb.as_ref() as *const _ as *const () as usize;
-
-        println!("{}", addr);
+        let _cb = button.callbacks().get("click");
     }
 }

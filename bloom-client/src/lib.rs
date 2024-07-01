@@ -24,7 +24,11 @@ where
     spawn_local(async {
         let mut dom = Dom::new();
 
-        let root_node = Arc::new(HtmlNode::element(root.tag_name().to_lowercase()).into());
+        let root_node = Arc::new(
+            HtmlNode::element(Box::leak(root.tag_name().to_lowercase().into_boxed_str()))
+                .build()
+                .into(),
+        );
         dom.register(&root_node, root.into());
         if let Err(error) = render_loop(root_node, element, WasmSpawner, dom).await {
             let msg = format!("Render loop error: {:?}", error);
@@ -40,7 +44,11 @@ where
     spawn_local(async {
         let mut dom = Dom::hydrate();
 
-        let root_node = Arc::new(HtmlNode::element(root.tag_name().to_lowercase()).into());
+        let root_node = Arc::new(
+            HtmlNode::element(Box::leak(root.tag_name().to_lowercase().into_boxed_str()))
+                .build()
+                .into(),
+        );
         dom.register(&root_node, root.into());
         if let Err(error) = render_loop(root_node, element, WasmSpawner, dom).await {
             let msg = format!("Render loop error: {:?}", error);

@@ -71,7 +71,7 @@ mod tests {
 
     #[tokio::test]
     async fn render_simple_stream() {
-        let element = div().children(vec![text("foo")]);
+        let element = div().build().children(vec![text("foo")]);
 
         let mut stream = render_to_stream::<(), TokioSpawner>(element, TokioSpawner);
 
@@ -85,9 +85,9 @@ mod tests {
 
     #[tokio::test]
     async fn render_with_attributes() {
-        let element = div().attr("class", "foo").attr("id", "bar").into();
+        let element = div().attr("class", "foo").attr("id", "bar").build();
 
-        let mut stream = render_to_stream::<(), TokioSpawner>(element, TokioSpawner);
+        let mut stream = render_to_stream::<(), TokioSpawner>(element.into(), TokioSpawner);
 
         let mut output = String::new();
         while let Some(Ok(chunk)) = stream.next().await {

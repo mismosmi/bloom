@@ -7,5 +7,6 @@ edition = "2021"
 
 [dependencies]
 bloom-core = { path = "../bloom-core" }
+builder-pattern = "0.4.2"
 derive_builder = "0.20.0"
 web-sys = { version = "0.3", features = ["Event", "HtmlElement"] }

@@ -1,16 +1,25 @@
+#![cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 
 use axum::{async_trait, body::Body, extract::Query, routing::get, Router};
 use bloom_core::{Component, Element};
 use bloom_html::{tag::div, text, HtmlNode};
 use bloom_server::render_to_stream;
-use derive_builder::Builder;
+use bloom_server_example::{hydration, TokioSpawner};
+use builder_pattern::Builder;
 use serde::Deserialize;
 
 #[tokio::main]
 async fn main() {
     // build our application with a single route
-    let app = Router::new().route("/", get(home));
+    let app = Router::new()
+        .route("/", get(home))
+        .route("/hydrate", get(hydration::server::hydration_page))
+        .route("/bundle.js", get(bloom_server_example::bundle::bundle_js))
+        .route(
+            "/bloom_server_example_bg.wasm",
+            get(bloom_server_example::bundle::bundle_wasm),
+        );
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -29,32 +38,21 @@ struct HomePage {
 
 #[async_trait]
 impl Component for HomePage {
-    type Error = HomePageBuilderError;
+    type Error = anyhow::Error;
     type Node = HtmlNode;
 
     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-        Ok(div().children(vec![text(format!("Hello, {}!", self.name))]))
-    }
-}
-
-#[derive(Clone)]
-struct TokioSpawner;
-impl futures_util::task::Spawn for TokioSpawner {
-    fn spawn_obj(
-        &self,
-        future: futures_util::task::FutureObj<'static, ()>,
-    ) -> Result<(), futures_util::task::SpawnError> {
-        tokio::spawn(future);
-        Ok(())
+        Ok(div()
+            .build()
+            .children(vec![text(format!("Hello, {}!", self.name))]))
     }
 }
 
 async fn home(query: Query<QueryParams>) -> Body {
     Body::from_stream(render_to_stream(
-        HomePageBuilder::default()
+        HomePage::new()
             .name(query.name.clone().unwrap_or("World".to_string()))
             .build()
-            .expect("Failed to build home page")
             .into(),
         TokioSpawner,
     ))

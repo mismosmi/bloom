@@ -42,15 +42,17 @@ impl Component for ExampleApp {
         });
 
         let counter = use_state::<i32>();
-        Ok(div().children(vec![
+        Ok(div().build().children(vec![
             div()
                 .dom_ref(hello_world_ref)
+                .build()
                 .children(vec![text("Hello, World!")]),
-            div().children(vec![text(counter.to_string())]),
+            div().build().children(vec![text(counter.to_string())]),
             button()
                 .on("click", move |_| {
                     counter.update(|count| Arc::new(*count + 1))
                 })
+                .build()
                 .children(vec![text("Increase")]),
         ]))
     }

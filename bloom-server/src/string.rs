@@ -42,7 +42,9 @@ mod tests {
 
     #[tokio::test]
     async fn render_simple_string() {
-        let element = bloom_html::tag::div().children(vec![bloom_html::text("foo")]);
+        let element = bloom_html::tag::div()
+            .build()
+            .children(vec![bloom_html::text("foo")]);
 
         let output = render_to_string::<(), TokioSpawner>(element, TokioSpawner).await;
 

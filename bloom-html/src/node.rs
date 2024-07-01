@@ -10,9 +10,8 @@ use std::{
 };
 
 use bloom_core::Element;
-use derive_builder::Builder;
 
-use crate::event::{EventHandler, HtmlEvent};
+use crate::event::EventHandler;
 
 #[derive(Debug, Default)]
 pub struct DomRef(AtomicU16);
@@ -66,15 +65,10 @@ impl Hash for DomRef {
     }
 }
 
-#[derive(Builder)]
-#[builder(pattern = "owned")]
 pub struct HtmlElement {
-    pub(crate) tag_name: String,
-    #[builder(default)]
+    pub(crate) tag_name: &'static str,
     pub(crate) attributes: HashMap<String, String>,
-    #[builder(default)]
     pub(crate) callbacks: HashMap<String, EventHandler>,
-    #[builder(default, setter(into))]
     pub(crate) dom_ref: Option<Arc<DomRef>>,
 }
 
@@ -90,6 +84,15 @@ impl Debug for HtmlElement {
 }
 
 impl HtmlElement {
+    pub fn new() -> HtmlElementBuilder<()> {
+        HtmlElementBuilder {
+            tag_name: (),
+            attributes: HashMap::new(),
+            callbacks: HashMap::new(),
+            dom_ref: None,
+        }
+    }
+
     pub fn tag_name(&self) -> &str {
         &self.tag_name
     }
@@ -107,6 +110,61 @@ impl HtmlElement {
     }
 }
 
+pub struct HtmlElementBuilder<T> {
+    pub(crate) tag_name: T,
+    pub(crate) attributes: HashMap<String, String>,
+    pub(crate) callbacks: HashMap<String, EventHandler>,
+    pub(crate) dom_ref: Option<Arc<DomRef>>,
+}
+
+impl HtmlElementBuilder<()> {
+    pub fn tag_name(self, tag_name: &'static str) -> HtmlElementBuilder<&'static str> {
+        HtmlElementBuilder {
+            tag_name,
+            attributes: self.attributes,
+            callbacks: self.callbacks,
+            dom_ref: self.dom_ref,
+        }
+    }
+}
+
+impl<T> HtmlElementBuilder<T> {
+    pub fn attr<K, V>(mut self, key: K, value: V) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+        V: Into<String>,
+    {
+        self.attributes.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn on<K, C>(mut self, key: K, handler: C) -> Self
+    where
+        K: Into<String>,
+        C: Fn(web_sys::Event) + Send + Sync + 'static,
+    {
+        self.callbacks.insert(key.into(), Box::new(handler));
+        self
+    }
+
+    pub fn dom_ref(mut self, dom_ref: Arc<DomRef>) -> Self {
+        self.dom_ref = Some(dom_ref);
+        self
+    }
+}
+
+impl HtmlElementBuilder<&'static str> {
+    pub fn build(self) -> HtmlElement {
+        HtmlElement {
+            tag_name: self.tag_name,
+            attributes: self.attributes,
+            callbacks: self.callbacks,
+            dom_ref: self.dom_ref,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum HtmlNode {
     Element(HtmlElement),
@@ -114,8 +172,8 @@ pub enum HtmlNode {
 }
 
 impl HtmlNode {
-    pub fn element(tag_name: String) -> HtmlElementBuilder {
-        HtmlElementBuilder::default().tag_name(tag_name)
+    pub fn element(tag_name: &'static str) -> HtmlElementBuilder<&'static str> {
+        HtmlElement::new().tag_name(tag_name)
     }
 
     pub fn text(text: String) -> Self {
@@ -130,48 +188,26 @@ impl HtmlNode {
     }
 }
 
-impl<E> From<HtmlElementBuilder> for Element<HtmlNode, E> {
-    fn from(builder: HtmlElementBuilder) -> Self {
-        Element::Node(
-            HtmlNode::Element(builder.build().expect("Missing Tag Name")),
-            Vec::new(),
-        )
+impl<E> From<HtmlElement> for Element<HtmlNode, E> {
+    fn from(element: HtmlElement) -> Self {
+        Element::Node(HtmlNode::Element(element), Vec::new())
     }
 }
 
-impl From<HtmlElementBuilder> for HtmlNode {
-    fn from(builder: HtmlElementBuilder) -> Self {
-        HtmlNode::Element(builder.build().expect("Missing Tag Name"))
+impl From<HtmlElement> for HtmlNode {
+    fn from(element: HtmlElement) -> Self {
+        HtmlNode::Element(element)
     }
 }
 
-impl HtmlElementBuilder {
+impl HtmlElement {
     pub fn children<E>(self, children: Vec<Element<HtmlNode, E>>) -> Element<HtmlNode, E> {
-        Element::Node(
-            HtmlNode::Element(self.build().expect("Missing Tag Name")),
-            children,
-        )
+        Element::Node(HtmlNode::Element(self), children)
     }
+}
 
-    pub fn attr<K, V>(mut self, key: K, value: V) -> Self
-    where
-        K: ToString,
-        V: ToString,
-    {
-        self.attributes
-            .get_or_insert(HashMap::new())
-            .insert(key.to_string(), value.to_string());
-        self
-    }
-
-    pub fn on<K, C>(mut self, key: K, callback: C) -> Self
-    where
-        K: ToString,
-        C: Fn(HtmlEvent) + Send + Sync + 'static,
-    {
-        self.callbacks
-            .get_or_insert(HashMap::new())
-            .insert(key.to_string(), Box::new(callback));
-        self
+impl HtmlNode {
+    pub fn children<E>(self, children: Vec<Element<HtmlNode, E>>) -> Element<HtmlNode, E> {
+        Element::Node(self, children)
     }
 }
