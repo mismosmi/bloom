@@ -3,12 +3,17 @@ use std::{fmt::Debug, sync::Arc};
 use bloom_core::{render_loop, Element};
 use bloom_html::HtmlNode;
 use dom::Dom;
+use interned_str::interned;
 use spawner::WasmSpawner;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{console, wasm_bindgen::JsCast, window, HtmlElement};
 
 mod dom;
+mod interned_str;
+mod partial;
 mod spawner;
+
+pub use partial::hydrate_partial;
 
 pub fn get_element_by_id(id: &str) -> Option<HtmlElement> {
     window()
@@ -25,7 +30,7 @@ where
         let mut dom = Dom::new();
 
         let root_node = Arc::new(
-            HtmlNode::element(Box::leak(root.tag_name().to_lowercase().into_boxed_str()))
+            HtmlNode::element(interned(root.tag_name().to_lowercase()))
                 .build()
                 .into(),
         );
@@ -45,7 +50,7 @@ where
         let mut dom = Dom::hydrate();
 
         let root_node = Arc::new(
-            HtmlNode::element(Box::leak(root.tag_name().to_lowercase().into_boxed_str()))
+            HtmlNode::element(interned(root.tag_name().to_lowercase()))
                 .build()
                 .into(),
         );

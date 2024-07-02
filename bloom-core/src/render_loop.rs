@@ -9,6 +9,7 @@ use futures_util::{
 
 use crate::{
     component::{AnyComponent, ComponentDiff},
+    context::ContextMap,
     hook::Hook,
     render_queue::{RenderContext, RenderQueue, RenderQueueItem},
     state::StateUpdate,
@@ -128,6 +129,12 @@ pub trait ObjectModel {
         // Do nothing by default
         future::ready(())
     }
+    fn subscribe(&mut self, _signal: Sender<()>) {
+        // do nothing by default
+    }
+    fn get_context(&mut self) -> ContextMap {
+        Arc::default()
+    }
 }
 
 pub async fn render_loop<N, E, S, P>(
@@ -146,6 +153,8 @@ where
 
     let (signal_sender, signal_receiver) = bounded::<()>(1);
 
+    object_model.subscribe(signal_sender.clone());
+
     signal_sender
         .try_send(())
         .expect("Failed to send message to trigger initial render");
@@ -157,7 +166,7 @@ where
             let mut render_queue = RenderQueue::new();
             render_queue.reload(
                 &mut tree_root,
-                RenderContext::new(root.clone(), None, Arc::default()),
+                RenderContext::new(root.clone(), None, object_model.get_context()),
             );
 
             while let Some(item) = render_queue.next() {

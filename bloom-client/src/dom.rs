@@ -171,6 +171,12 @@ impl Dom {
         self.nodes
             .insert(node.clone(), NodeState::hydrate(node, dom_node));
     }
+
+    pub(crate) fn set_hydration_index(&mut self, node: Arc<HtmlNode>, index: u32) {
+        self.hydration_state
+            .get_or_insert_with(PtrWeakKeyHashMap::new)
+            .insert(node, index);
+    }
 }
 
 impl ObjectModel for Dom {

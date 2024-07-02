@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-channel = "2.3.1"
 bloom-core = { version = "0.1.0", path = "../bloom-core" }
 bloom-html = { version = "0.1.0", path = "../bloom-html" }
 futures-util = "0.3.30"
