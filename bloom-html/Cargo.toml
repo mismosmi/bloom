@@ -1,10 +1,11 @@
 [package]
 name = "bloom-html"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Michel Smola <dev@michelsmola.de>"]
 license = "MIT"
 description = "Provides the HtmlNode type for bloom-client and bloom-server"
+repository = "https://github.com/mismosmi/bloom/tree/main/bloom-html"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

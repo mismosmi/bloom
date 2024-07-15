@@ -14,8 +14,8 @@ Currently implemented are
 * `Comment` which represents HTML-comments (`<!-- my comment here -->`)
 
 ## So what do I do with this?
-For server-side rendering (which is, notably, stateless so no `use_state`, `use_effect` etc. here) take a look at (https://crates.io/crates/bloom-ssr)[bloom-ssr]
+For server-side rendering (which is, notably, stateless so no `use_state`, `use_effect` etc. here) take a look at [bloom-ssr](https://crates.io/crates/bloom-ssr)
 
-For client-side rendering take a look at (https://crates.io/crates/bloom-client)[bloom-client]. It also supports hydrating from server-rendered html.
+For client-side rendering take a look at [bloom-client](https://crates.io/crates/bloom-client). It also supports hydrating from server-rendered html.
 
 For anything more fancy please bring a little patience... 
