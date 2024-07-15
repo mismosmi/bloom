@@ -2,11 +2,14 @@
 name = "bloom-html"
 version = "0.1.0"
 edition = "2021"
+authors = ["Michel Smola <dev@michelsmola.de>"]
+license = "MIT"
+description = "Provides the HtmlNode type for bloom-client and bloom-server"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bloom-core = { path = "../bloom-core" }
+bloom-core = { version = "0.1.1", path = "../bloom-core" }
 builder-pattern = "0.4.2"
 derive_builder = "0.20.0"
 web-sys = { version = "0.3", features = ["Event", "HtmlElement"] }

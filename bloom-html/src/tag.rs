@@ -1,3 +1,4 @@
+//! Some basic html tags
 use crate::{element::HtmlElementBuilder, HtmlNode};
 
 pub fn div() -> HtmlElementBuilder<&'static str> {

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::DomRef;
 
+/// Represents an HTML comment (`<!-- text -->`).
 #[derive(Debug, PartialEq, Clone)]
 pub struct HtmlComment {
     pub(crate) text: String,
@@ -9,6 +10,10 @@ pub struct HtmlComment {
 }
 
 impl HtmlComment {
+    /// Build a new HTML comment
+    /// ```
+    /// HtmlComment::new().text("foo").build();
+    /// ```
     pub fn new() -> HtmlCommentBuilder<()> {
         HtmlCommentBuilder {
             text: (),
@@ -16,10 +21,12 @@ impl HtmlComment {
         }
     }
 
+    /// Get the text-content of the comment
     pub fn text(&self) -> &String {
         &self.text
     }
 
+    /// Get the DOM reference of the comment
     pub fn dom_ref(&self) -> &Option<Arc<DomRef>> {
         &self.dom_ref
     }
@@ -31,6 +38,11 @@ pub struct HtmlCommentBuilder<T> {
 }
 
 impl<T> HtmlCommentBuilder<T> {
+    /// Use
+    /// ```
+    /// let comment = use_ref::<DomRef>();
+    /// ```
+    /// to obtain the `Arc<DomRef>` to pass to this method.
     pub fn dom_ref(mut self, dom_ref: Arc<DomRef>) -> Self {
         self.dom_ref = Some(dom_ref);
         self
@@ -38,6 +50,7 @@ impl<T> HtmlCommentBuilder<T> {
 }
 
 impl HtmlCommentBuilder<()> {
+    /// set the text-content of the comment
     pub fn text<T>(self, text: T) -> HtmlCommentBuilder<String>
     where
         T: Into<String>,
@@ -50,6 +63,7 @@ impl HtmlCommentBuilder<()> {
 }
 
 impl HtmlCommentBuilder<String> {
+    /// build the comment, the use `comment.into()` to convert it to a `bloom_core::Element<HtmlNode, E>`
     pub fn build(self) -> HtmlComment {
         HtmlComment {
             text: self.text,

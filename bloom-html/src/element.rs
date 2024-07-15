@@ -2,6 +2,7 @@ use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use crate::{DomRef, EventHandler};
 
+/// Represents an html tag such as `<div>`, `<span>`, etc.
 pub struct HtmlElement {
     pub(crate) tag_name: &'static str,
     pub(crate) attributes: HashMap<String, String>,
@@ -21,6 +22,10 @@ impl Debug for HtmlElement {
 }
 
 impl HtmlElement {
+    /// Build a new HtmlElement
+    /// ```
+    /// HtmlElement::new().tag_name("div").build();
+    /// ```
     pub fn new() -> HtmlElementBuilder<()> {
         HtmlElementBuilder {
             tag_name: (),
@@ -34,14 +39,21 @@ impl HtmlElement {
         &self.tag_name
     }
 
+    /// get a map of all the attributes:
+    /// For a `<div id="foo" class="bar">` this would return
+    /// `{"id": "foo", "class": "bar"}`
     pub fn attributes(&self) -> &HashMap<String, String> {
         &self.attributes
     }
 
+    /// get a map of all the callbacks / event handlers:
+    /// For a `<div on_click=|_| { alert!("clicked")}>` this would return
+    /// `{ "click": |event| { alert!("clicked") } }`
     pub fn callbacks(&self) -> &HashMap<String, EventHandler> {
         &self.callbacks
     }
 
+    /// get the dom reference of the element
     pub fn dom_ref(&self) -> &Option<Arc<DomRef>> {
         &self.dom_ref
     }
@@ -66,6 +78,11 @@ impl HtmlElementBuilder<()> {
 }
 
 impl<T> HtmlElementBuilder<T> {
+    /// set one specific attribute of the element:
+    /// ```
+    /// HtmlElement::new().tag_name("div").attr("id", "foo").build();
+    /// ```
+    /// builds a `<div id="foo">`
     pub fn attr<K, V>(mut self, key: K, value: V) -> Self
     where
         K: Into<String>,
@@ -76,6 +93,11 @@ impl<T> HtmlElementBuilder<T> {
         self
     }
 
+    /// Set one specific callback / event handler:
+    /// ```
+    /// HtmlElement::new().tag_name("div").on("click", |event| { alert!("clicked") }).build();
+    /// ```
+    /// builds a div that will send an alert on the "click"-event
     pub fn on<K, C>(mut self, key: K, handler: C) -> Self
     where
         K: Into<String>,
@@ -85,6 +107,8 @@ impl<T> HtmlElementBuilder<T> {
         self
     }
 
+    /// Get a dom reference to the element:
+    /// Use `use_ref::<DomRef>()` to obtain the `Arc<DomRef>` to pass to this method.
     pub fn dom_ref(mut self, dom_ref: Arc<DomRef>) -> Self {
         self.dom_ref = Some(dom_ref);
         self
