@@ -2,6 +2,10 @@ use bloom_core::{render_stream, Element};
 use bloom_html::HtmlNode;
 use futures_util::{task::Spawn, StreamExt};
 
+/// render_to_string takes a bloom-core Element and a spawner and returns a string.
+/// Prefer using render_to_stream where possible to get the advantages of streaming rendering.
+/// This function is useful for testing and other use-cases where you need the full string at once,
+/// e.G. if the necessary headers cannot be sent before the full body is rendered.
 pub async fn render_to_string<E, S>(element: Element<HtmlNode, E>, spawner: S) -> Result<String, E>
 where
     E: Send + 'static,
@@ -20,6 +24,9 @@ where
                 }
                 HtmlNode::Text(text) => {
                     output.push_str(&text);
+                }
+                HtmlNode::Comment(comment) => {
+                    output.push_str(&format!("<!--{}-->", comment.text()));
                 }
             },
             Some(Err(error)) => return Err(error),

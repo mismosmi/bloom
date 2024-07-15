@@ -135,8 +135,39 @@ pub trait ObjectModel {
     fn get_context(&mut self) -> ContextMap {
         Arc::default()
     }
+    fn set_context(&mut self, _ctx: ContextMap) {
+        // do nothing by default
+    }
 }
 
+/// render_loop can be used to implement interactive renderers on top of bloom-core.
+/// The primary renderer is the bloom-client library which implements client side rendering
+/// in the browser on top of bloom using webassembly.
+/// The root is the root node in the host environment which will contain the rendered UI.
+/// In web-environments the root might be a div within the body that is part of the server-sent html:
+/// ```html
+/// <html>
+///   <body>
+///     <div id="root"></div>
+///   </body>
+/// </html>
+/// ```
+///
+/// ```
+/// render_loop(get_element_by_id('root'), ...)
+/// ```
+///
+/// The element is the root of the component tree that represents the intended UI.
+/// This is usually a component:
+/// ```
+/// render_loop(root_node, rsx!(<MyComponent />), ...)
+/// ```
+///
+/// The spawner-argument is
+/// an object that implements the Spawn-trait so bloom can spawn async tasts on
+/// arbitrary task runners such as tokio or async-std.
+///
+///  The object model is the interface to the host environment.
 pub async fn render_loop<N, E, S, P>(
     root: Arc<N>,
     element: Element<N, E>,
@@ -680,7 +711,7 @@ mod tests {
             async fn render(
                 self: Arc<Self>,
             ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                let counter = use_state::<i32>();
+                let counter = use_state(|| 0i32);
                 if *counter == 0 {
                     counter.update(|count| *count + 1);
                 }
@@ -727,7 +758,7 @@ mod tests {
             async fn render(
                 self: Arc<Self>,
             ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                let counter = use_state::<i32>();
+                let counter = use_state(|| 0i32);
 
                 if *counter == 0 {
                     let counter = counter.clone();

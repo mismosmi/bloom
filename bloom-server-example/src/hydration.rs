@@ -15,7 +15,7 @@ impl Component for HydrationPage {
     type Node = HtmlNode;
 
     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-        let counter = use_state::<u32>();
+        let counter = use_state(|| 0i32);
         Ok(rsx!(
             <div>
                 "Hello, World!"

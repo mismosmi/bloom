@@ -1,4 +1,4 @@
-use crate::{node::HtmlElementBuilder, HtmlNode};
+use crate::{element::HtmlElementBuilder, HtmlNode};
 
 pub fn div() -> HtmlElementBuilder<&'static str> {
     HtmlNode::element("div")

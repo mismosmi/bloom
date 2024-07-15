@@ -15,7 +15,7 @@ use weak_table::PtrWeakKeyHashMap;
 use web_sys::{
     console,
     wasm_bindgen::{closure::Closure, JsCast},
-    window, Element, Node, Text,
+    window, Comment, Element, Node, Text,
 };
 
 fn document() -> web_sys::Document {
@@ -32,6 +32,9 @@ enum NodeState {
     },
     Text {
         node: Text,
+    },
+    Comment {
+        node: Comment,
     },
 }
 
@@ -50,7 +53,7 @@ impl NodeState {
                 }
 
                 if let Some(dom_ref) = element.dom_ref() {
-                    dom_ref.set(dom_node.clone());
+                    dom_ref.set(dom_node.clone().into());
                 }
 
                 Self::Element {
@@ -63,19 +66,28 @@ impl NodeState {
                 text_node.set_text_content(Some(text));
                 Self::Text { node: text_node }
             }
+            HtmlNode::Comment(comment) => {
+                let comment_node = document().create_comment(comment.text());
+                comment_node.set_text_content(Some(comment.text()));
+
+                if let Some(dom_ref) = comment.dom_ref() {
+                    dom_ref.set(comment_node.clone().into())
+                }
+                Self::Comment { node: comment_node }
+            }
         }
     }
 
     fn hydrate(node: &Arc<HtmlNode>, dom_node: Node) -> Self {
         match node.as_ref() {
             HtmlNode::Element(element) => {
-                let dom_node: web_sys::Element = dom_node
-                    .dyn_into()
-                    .expect("Expected Element, received Text");
-
                 if let Some(dom_ref) = element.dom_ref() {
                     dom_ref.set(dom_node.clone());
                 }
+
+                let dom_node: web_sys::Element = dom_node
+                    .dyn_into()
+                    .expect("Expected Element, received Text");
 
                 Self::Element {
                     callbacks: Self::setup_callbacks(
@@ -90,6 +102,17 @@ impl NodeState {
                     .dyn_into()
                     .expect("Expected Text, received Element"),
             },
+            HtmlNode::Comment(comment) => {
+                if let Some(dom_ref) = comment.dom_ref() {
+                    dom_ref.set(dom_node.clone())
+                }
+
+                Self::Comment {
+                    node: dom_node
+                        .dyn_into()
+                        .expect("Expected Comment, received Node"),
+                }
+            }
         }
     }
 
@@ -136,6 +159,7 @@ impl NodeState {
                 node.into()
             }
             Self::Text { node } => node.into(),
+            Self::Comment { node } => node.into(),
         }
     }
 
@@ -143,6 +167,7 @@ impl NodeState {
         match self {
             Self::Element { node, .. } => node,
             Self::Text { node } => node,
+            Self::Comment { node } => node,
         }
     }
 }
@@ -298,6 +323,25 @@ impl ObjectModel for Dom {
                         .insert(next.clone(), NodeState::hydrate(node, current_node));
                 } else {
                     console::log_1(&format!("Replace text {}", text).into());
+                    let new_state = NodeState::create(next);
+
+                    current_node
+                        .parent_node()
+                        .expect("Failed to get parent node")
+                        .replace_child(new_state.node(), &current_node)
+                        .expect("Failed to replace child node");
+
+                    self.nodes.insert(next.clone(), new_state);
+                }
+            }
+            HtmlNode::Comment(comment) => {
+                if let Some(current_comment_node) = current_node.dyn_ref::<web_sys::Comment>() {
+                    if current_comment_node.text_content().as_ref() != Some(comment.text()) {
+                        current_comment_node.set_text_content(Some(comment.text()))
+                    }
+                    self.nodes
+                        .insert(next.clone(), NodeState::hydrate(node, current_node));
+                } else {
                     let new_state = NodeState::create(next);
 
                     current_node

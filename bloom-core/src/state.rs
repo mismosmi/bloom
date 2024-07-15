@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap, ops::Deref, sync::Arc};
+use std::{any::Any, collections::HashMap, hash::Hash, ops::Deref, sync::Arc};
 
 use async_channel::{bounded, Sender};
 use async_context::with_async_context_mut;
@@ -26,6 +26,18 @@ impl StateUpdate {
     }
 }
 
+/// The state object can be dereferenced to obtain the current value.
+/// ```
+/// let my_state = use_state(|| 0);
+///
+/// assert_eq!(0, *my_state);
+/// ```
+///
+/// It's update-method can be used to change the state.
+/// ```
+/// my_state.update(|value| *value + 1);
+/// ```
+/// This will trigger a re-render of the component.
 #[derive(Clone)]
 pub struct State<T> {
     value: Arc<T>,
@@ -42,6 +54,13 @@ impl<T> Deref for State<T> {
     }
 }
 
+impl<T> Hash for State<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.value).hash(state);
+        self.index.hash(state);
+    }
+}
+
 impl<N, E, T> From<State<T>> for Element<N, E>
 where
     N: From<String>,
@@ -55,13 +74,13 @@ where
 
 impl<T> State<T>
 where
-    T: Default + Send + Sync + 'static,
+    T: Send + Sync + 'static,
 {
-    fn mock() -> Self {
+    fn mock(value: T) -> Self {
         let (mock_signal, _) = bounded(0);
         let (mock_updater, _) = bounded(0);
         State {
-            value: Arc::new(T::default()),
+            value: Arc::new(value),
             signal: mock_signal,
             updater: mock_updater,
             index: 0,
@@ -73,12 +92,13 @@ where
         R: Into<Arc<T>>,
         C: FnOnce(Arc<T>) -> R + Send + Sync + 'static,
     {
+        let current_value = self.value.clone();
         self.updater
             .try_send(StateUpdate {
                 update: Box::new(move |value| {
                     let typed_value = value
                         .map(|value| value.downcast().expect("Invalid state hook"))
-                        .unwrap_or_default();
+                        .unwrap_or(current_value);
                     callback(typed_value).into()
                 }),
                 index: self.index,
@@ -88,9 +108,13 @@ where
     }
 }
 
-pub fn use_state<T>() -> State<T>
+/// Analog to react's useState API.
+/// Pass a callback to build the initial state.
+/// The returned State-object can be used to read and update the state.
+pub fn use_state<T, D>(default: D) -> State<T>
 where
-    T: Default + Send + Sync + 'static,
+    T: Send + Sync + 'static,
+    D: FnOnce() -> T,
 {
     with_async_context_mut(|hook: Option<&mut Hook>| {
         if let Some(hook) = hook {
@@ -110,7 +134,7 @@ where
                     index,
                 }
             } else {
-                let value = Arc::new(T::default());
+                let value = Arc::new(default());
                 State {
                     value,
                     signal,
@@ -119,7 +143,7 @@ where
                 }
             }
         } else {
-            State::mock()
+            State::mock(default())
         }
     })
 }

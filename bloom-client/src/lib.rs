@@ -22,6 +22,8 @@ pub fn get_element_by_id(id: &str) -> Option<HtmlElement> {
         .and_then(|element| element.dyn_into::<HtmlElement>().ok())
 }
 
+/// Use the render-function to construct the DOM for a component completely on the client.
+/// Pass it your bloom-component and the root HtmlElement to render it into.
 pub fn render<E>(root: HtmlElement, element: Element<HtmlNode, E>)
 where
     E: Send + 'static + Debug,
@@ -42,6 +44,7 @@ where
     });
 }
 
+/// hydrate can be used to hydrate an existing DOM from server-side rendered HTML.
 pub fn hydrate<E>(root: HtmlElement, element: Element<HtmlNode, E>)
 where
     E: Send + 'static + Debug,

@@ -39,7 +39,7 @@ impl Component for ExampleApp {
             console::log_2(&"hello world div".into(), &node.get().unwrap());
         });
 
-        let counter = use_state::<i32>();
+        let counter = use_state(|| 0i32);
         Ok(rsx!(
             <div>
                 <div ref=hello_world_ref>

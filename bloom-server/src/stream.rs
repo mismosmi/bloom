@@ -28,6 +28,9 @@ impl<E> Stream for StringStream<E> {
                     HtmlNode::Text(text) => {
                         return Poll::Ready(Some(Ok(text)));
                     }
+                    HtmlNode::Comment(comment) => {
+                        return Poll::Ready(Some(Ok(format!("<!--{}-->", comment.text()))))
+                    }
                 },
                 Poll::Ready(None) => {
                     if let Some((Some(tag_name), _)) = self.stack.pop() {
@@ -53,6 +56,9 @@ impl<E> StringStream<E> {
     }
 }
 
+/// use the render_to_stream API to render a component to a stream of strings.
+/// This works very nicely with the axum-framework making it easy to implement
+/// natively streaming server-side rendering.
 pub fn render_to_stream<E, S>(element: Element<HtmlNode, E>, spawner: S) -> StringStream<E>
 where
     E: Send + 'static,

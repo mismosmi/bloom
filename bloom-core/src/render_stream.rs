@@ -127,6 +127,10 @@ where
     NodeStream::from(children)
 }
 
+/// render_stream is the main way to render some bloom-based UI once.
+/// It takes an element and a spawner and returns a stream of nodes.
+/// Libraries like bloom-server use this to render the UI to
+/// a stream of serialized HTML to implement server-side rendering.
 pub fn render_stream<N, E, S>(element: Element<N, E>, spawner: S) -> NodeStream<N, E>
 where
     N: From<String> + Send + Sync + 'static,
