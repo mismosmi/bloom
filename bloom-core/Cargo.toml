@@ -1,10 +1,11 @@
 [package]
 name = "bloom-core"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Michel Smola <dev@michelsmola.de>"]
 license = "MIT"
 description = "A react-like framework for descriptive UIs. Renderer Agnostic but built with HTML in mind."
+repository = "https://github.com/mismosmi/bloom/tree/main/bloom-core"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

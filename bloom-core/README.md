@@ -48,7 +48,7 @@ Native UI elements (such as native HTML-Nodes, think `<div>` and `<span>`) are c
 The `Component`-trait has a type parameter (`Node`) to represent the specific node-type it is implemented for.
 
 ## RSX
-Bloom provides its own implementation of a JSX-like syntax for rust, RSX, in the (https://crates.io/crates/bloom-rsx)[bloom-rsx] crate.
+Bloom provides its own implementation of a JSX-like syntax for rust, RSX, in the [bloom-rsx](https://crates.io/crates/bloom-rsx) crate.
 
 ## Data fetching
 Bloom components are async functions. This means that data fetching can be as easy as a direct fetch-call:
@@ -63,4 +63,4 @@ async fn render() -> Result<Element<Self::Node, Self::Error>, Self::Error> {
 ```
 
 ## HTML
-For everything related to rendering HTML with bloom see the (https://crates.io/crates/bloom-html)[bloom-html] crate.
+For everything related to rendering HTML with bloom see the [bloom-html](https://crates.io/crates/bloom-html) crate.
