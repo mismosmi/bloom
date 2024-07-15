@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Provide context to async functions"
 license = "MIT"
+authors = ["Michel Smola <dev@michelsmola.de>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
