@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use async_context::{with_async_context, with_async_context_mut};
+use async_context::with_async_context;
 
 use crate::{hook::Hook, Element};
 

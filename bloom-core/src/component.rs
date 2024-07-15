@@ -3,40 +3,71 @@ use std::{any::Any, sync::Arc};
 use crate::Element;
 use async_trait::async_trait;
 
-/// The component trait is the core of the blom library.
-/// Components are roughly equivalent to React components.
-/// The struct itself represents the props of the component.
-/// The trait has a render method which contains the component logic.
-/// It should return the [Element] type, which is easily generated
-/// using the rsx macro from the bloom-rsx crate.
-/// Within the render function, hooks can be used such as [use_state] and [use_effect].
-/// ```
-/// use bloom_core::Component;
-///
-/// #[derive(PartialEq, Debug)]
-/// struct Counter {
-///     initial_count: i32
-/// }
-///
-/// #[async_trait]
-/// impl Component for Counter {
-///   type Node = HtmlNode;
-///   type Error = ();
-///
-///   async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-///     let count = use_state(|| self.initial_count);
-///
-///     rsx!(
-///       <div>{count}</div>
-///       <button on_click={move |_| count.update(|count| *count + 1)}>Increment</button>
-///     )
-/// ```
-///
-/// Components should usually implement a builder pattern for construction using the bloom-rsx macro.
+/// The component trait is the core of the bloom library.
+/// It represents the basic unit of a bloom application.
 #[async_trait]
 pub trait Component: PartialEq<Self> + Send + Sync {
+    /// The node type is a representation of the native UI elements of the target renderer.
     type Node: From<String>;
+    /// The error type for the entire application.
     type Error;
+    /// Components are roughly equivalent to React components.
+    /// The struct itself represents the props of the component.
+    /// The trait has a render method which contains the component logic.
+    /// It should return the [Element] type, which is easily generated
+    /// using the rsx macro from the bloom-rsx crate.
+    /// Within the render function, hooks can be used such as [bloom_core::use_state] and [bloom_core::use_effect].
+    /// ```
+    /// use bloom_core::Component;
+    ///
+    /// #[derive(PartialEq, Debug)]
+    /// struct Counter {
+    ///     initial_count: i32
+    /// }
+    ///
+    /// #[async_trait]
+    /// impl Component for Counter {
+    ///   type Node = HtmlNode;
+    ///   type Error = ();
+    ///
+    ///   async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+    ///     let count = use_state(|| self.initial_count);
+    ///
+    ///     rsx!(
+    ///       <div>{count}</div>
+    ///       <button on_click={move |_| count.update(|count| *count + 1)}>Increment</button>
+    ///     )
+    /// ```
+    ///
+    /// Components should usually implement a builder pattern for construction using the bloom-rsx macro./// Components are roughly equivalent to React components.
+    /// The struct itself represents the props of the component.
+    /// The trait has a render method which contains the component logic.
+    /// It should return the [Element] type, which is easily generated
+    /// using the rsx macro from the bloom-rsx crate.
+    /// Within the render function, hooks can be used such as [use_state] and [use_effect].
+    /// ```
+    /// use bloom_core::Component;
+    ///
+    /// #[derive(PartialEq, Debug)]
+    /// struct Counter {
+    ///     initial_count: i32
+    /// }
+    ///
+    /// #[async_trait]
+    /// impl Component for Counter {
+    ///   type Node = HtmlNode;
+    ///   type Error = ();
+    ///
+    ///   async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+    ///     let count = use_state(|| self.initial_count);
+    ///
+    ///     rsx!(
+    ///       <div>{count}</div>
+    ///       <button on_click={move |_| count.update(|count| *count + 1)}>Increment</button>
+    ///     )
+    /// ```
+    ///
+    /// Components should usually implement a builder pattern for construction using the bloom-rsx macro.
     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error>;
 }
 
