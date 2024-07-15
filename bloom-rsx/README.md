@@ -1,6 +1,6 @@
 # bloom-rsx
 
-Essentially, bloom-rsx implements rsx in a way that it just calls a builder-pattern based on the (https://crates.io/crates/builder-pattern)[builder-pattern] crate.
+Essentially, bloom-rsx implements rsx in a way that it just calls a builder-pattern based on the [builder-pattern](https://crates.io/crates/builder-pattern) crate.
 
 ## Tags
 Lower-case tags will be transformed to calls to a `tag` function that must be in scope (bloom-html provides one for `HtmlNode`s):
