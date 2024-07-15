@@ -5,6 +5,7 @@ edition = "2021"
 authors = ["Michel Smola <dev@michelsmola.de>"]
 license = "MIT"
 description = "Server-side rendering for bloom-html"
+repository = "https://github.com/mismosmi/bloom/tree/main/bloom-ssr"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

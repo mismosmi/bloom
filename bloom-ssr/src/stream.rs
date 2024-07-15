@@ -6,6 +6,8 @@ use futures_util::{task::Spawn, Stream, StreamExt};
 
 use crate::serializer::serialize_node_open;
 
+/// The stream type returned by the render_to_stream API.
+/// This stream will yield strings representing the HTML output of the rendered component.
 pub struct StringStream<E> {
     stack: Vec<(Option<String>, NodeStream<HtmlNode, E>)>,
 }
