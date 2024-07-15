@@ -1,3 +1,4 @@
+//! Partial rendering support for bloom is WIP
 use async_channel::Sender;
 use bloom_core::{render_loop, Element, ObjectModel};
 use bloom_html::HtmlNode;
