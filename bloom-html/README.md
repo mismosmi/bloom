@@ -3,7 +3,7 @@
 bloom-html provides the central node-type for Browser-Environments:
 `HtmlNode`.
 
-It is part of the bloom UI-Framework and builds on the (https://crates.io/crates/bloom-core)[bloom-core] crate.
+It is part of the bloom UI-Framework and builds on the [bloom-core](https://crates.io/crates/bloom-core) crate.
 
 ## The HtmlNode type
 `HtmlNode` is roughly equivalent to a node in the Browser-DOM.
