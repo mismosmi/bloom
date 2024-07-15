@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use async_context::with_async_context;
+use async_context::{with_async_context, with_async_context_mut};
 
 use crate::{hook::Hook, Element};
 
@@ -45,6 +45,16 @@ where
                 .unwrap_or(Arc::new(T::default()))
         } else {
             Arc::new(T::default())
+        }
+    })
+}
+
+pub fn _get_context() -> ContextMap {
+    with_async_context(|hook: Option<&Hook>| {
+        if let Some(hook) = hook {
+            hook.context.clone()
+        } else {
+            Arc::default()
         }
     })
 }
