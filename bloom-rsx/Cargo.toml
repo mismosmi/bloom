@@ -2,6 +2,10 @@
 name = "bloom-rsx"
 version = "0.1.0"
 edition = "2021"
+authors = ["Michel Smola <dev@michelsmola.de>"]
+license = "MIT"
+description = "A JSX-like syntax for bloom"
+repository = "https://github.com/mismosmi/bloom/tree/main/bloom-rsx"
 
 [lib]
 proc-macro = true

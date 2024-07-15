@@ -3,6 +3,11 @@ use quote::quote;
 use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Expr, ExprPath, Fields};
 use syn_rsx::{parse2, Node, NodeName};
 
+/// The core rsx macro.
+/// Transforms
+/// * `<Component prop="value" />` into `Component::new().prop("value").build().into()`
+/// * `<tag attribute="value" on_event={handler} />` into `tag("tag").attr("attribute", "value").on("event", handler).build().into()`
+/// * `"text"` into `"text".to_string().into()`
 #[proc_macro]
 pub fn rsx(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let tree = parse2(tokens.into()).expect("Failed to parse RSX");
