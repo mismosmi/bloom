@@ -11,3 +11,6 @@ Docs on how to use this with wasm-pack are coming soon
 There's really only two APIs
 * `render` renders a component completely on the client
 * `hydrate` renders a component based on pre-rendered html (usually from using `bloom-ssr` on the server)
+
+## Example
+See [bloom-client-example](https://github.com/mismosmi/bloom/tree/main/bloom-client-example)
