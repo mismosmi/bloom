@@ -1,7 +1,10 @@
 [package]
-name = "bloom-server"
+name = "bloom-ssr"
 version = "0.1.0"
 edition = "2021"
+authors = ["Michel Smola <dev@michelsmola.de>"]
+license = "MIT"
+description = "Server-side rendering for bloom-html"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
