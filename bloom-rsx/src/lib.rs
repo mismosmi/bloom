@@ -103,7 +103,7 @@ fn transform_props(attributes: Vec<Node>) -> TokenStream {
         .into_iter()
         .map(|attribute| match attribute {
             Node::Attribute(attribute) => {
-                let name = attribute.key.to_string();
+                let name = attribute.key;
 
                 if let Some(value) = attribute.value {
                     let value: Expr = value.into();
@@ -146,7 +146,7 @@ fn transform_component(tag: &ExprPath, attributes: Vec<Node>, children: Vec<Node
         }
     };
     quote! {
-        <#tag>::new()#children #attributes.build().into()
+        <#tag>::new() #children #attributes .build().into()
     }
 }
 
@@ -243,6 +243,20 @@ mod tests {
             .nth(0)
             .unwrap(),
         );
-        assert_eq!(actual.to_string(), "< MyComponent > :: new () . children ({ let mut children = Vec :: with_capacity (1usize) ; children . push (tag (\"div\") . attr (\"id\" , \"child\") . build () . into ()) ; children . into () }) . \"number_prop\" (123) . \"boolean_prop\" (true) . build () . into ()")
+        assert_eq!(actual.to_string(), "< MyComponent > :: new () . children ({ let mut children = Vec :: with_capacity (1usize) ; children . push (tag (\"div\") . attr (\"id\" , \"child\") . build () . into ()) ; children . into () }) . number_prop (123) . boolean_prop (true) . build () . into ()")
+    }
+
+    #[test]
+    fn render_leaf_component() {
+        let actual = super::transform_node(
+            syn_rsx::parse2(quote! {
+                <MyComponent number_prop=123 boolean_prop label="test" />
+            })
+            .unwrap()
+            .into_iter()
+            .nth(0)
+            .unwrap(),
+        );
+        assert_eq!(actual.to_string(), "< MyComponent > :: new () . number_prop (123) . boolean_prop (true) . label (\"test\") . build () . into ()")
     }
 }

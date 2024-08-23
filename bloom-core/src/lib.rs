@@ -7,9 +7,11 @@ mod object_ref;
 mod render_loop;
 mod render_queue;
 mod render_stream;
+mod result;
 mod state;
 mod suspense;
 
+pub use bloom_macro::component;
 pub use component::Component;
 pub use context::{_get_context, use_context};
 pub use effect::use_effect;
@@ -17,4 +19,5 @@ pub use element::Element;
 pub use object_ref::{use_ref, use_ref_with_default};
 pub use render_loop::{render_loop, ObjectModel};
 pub use render_stream::{render_stream, NodeStream};
+pub use result::Result;
 pub use state::use_state;

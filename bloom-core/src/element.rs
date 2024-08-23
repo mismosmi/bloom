@@ -44,6 +44,24 @@ where
     }
 }
 
+impl<N, E> From<&str> for Element<N, E>
+where
+    N: From<String>,
+{
+    fn from(value: &str) -> Self {
+        Element::Node(N::from(value.to_string()), vec![])
+    }
+}
+
+impl<N, E> From<&String> for Element<N, E>
+where
+    N: From<String>,
+{
+    fn from(value: &String) -> Self {
+        Element::Node(N::from(value.to_string()), vec![])
+    }
+}
+
 impl<N, E> From<()> for Element<N, E>
 where
     N: From<String>,

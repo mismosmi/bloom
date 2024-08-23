@@ -15,6 +15,7 @@ async-trait = "0.1.80"
 async-context = { version = "0.1.0", path = "../async-context" }
 async-channel = "2.2.1"
 pin-project = "1.1.5"
+bloom-macro = { version = "0.1.0", path = "../bloom-macro" }
 
 [dev-dependencies]
 tokio = { version = "1.37.0", features = ["macros", "rt"] }

@@ -9,7 +9,7 @@ members = [
     "bloom-client-example",
     "bloom-server-example",
     "bloom-rsx",
-    "bloom-hybrid",
+    "bloom-hybrid", "bloom-macro",
 ]
 
 resolver = "2"
