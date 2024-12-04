@@ -179,7 +179,7 @@ mod tests {
 
         let item = syn::parse2(input).expect("Failed to parse");
 
-        let output = transform(TokenStream::new(), item);
+        let output = transform_component(TokenStream::new(), item);
         println!("{}", output);
     }
 }
