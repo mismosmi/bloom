@@ -1,6 +1,7 @@
-pub mod hydration;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod bundle;
+pub mod hydration;
+pub mod partial_hydration;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
