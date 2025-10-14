@@ -8,7 +8,7 @@ to build true native cross platform GUI applications.
 
 It is split into the following packages:
 
-* [bloom-core] is the core package including the diffing logic and core traits.
+* [bloom-core](./bloom-core/README.md) is the core package including the diffing logic and core traits.
 * [bloom-html] provides node definitions for working with HTML rendering targets.
 * [bloom-client] is a reference implementation for using bloom on web-clients using web assembly.
 * [bloom-ssr] is a reference implementation for server-side rendering, both to static strings and as streaming responses.
