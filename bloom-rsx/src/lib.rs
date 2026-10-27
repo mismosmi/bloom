@@ -14,7 +14,8 @@ use syn::{
 ///
 /// A `key` on a tag or component wraps it in a keyed element, which identifies it among its
 /// siblings so it keeps its state when its list is reordered:
-/// `<li key={id} />` becomes `::bloom_core::Element::keyed(id, tag("li").build())`
+/// `<li key={id} />` becomes `keyed(id, tag("li").build())`.
+/// Like `tag`, a `keyed` function must be in scope (`bloom_html::prelude` provides one).
 #[proc_macro]
 pub fn rsx(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut tree = parse2(tokens.into()).expect("Failed to parse RSX");
@@ -113,7 +114,7 @@ fn take_key(attributes: &mut Vec<NodeAttribute>) -> Option<Expr> {
 fn into_element(element: TokenStream, key: Option<Expr>) -> TokenStream {
     match key {
         Some(key) => quote! {
-            ::bloom_core::Element::keyed(#key, #element)
+            keyed(#key, #element)
         },
         None => quote! {
             #element.into()
@@ -369,7 +370,7 @@ mod tests {
         );
         assert_eq!(
             actual.to_string(),
-            ":: bloom_core :: Element :: keyed (item . id , tag (\"li\") . attr (\"class\" , \"item\") . build ())"
+            "keyed (item . id , tag (\"li\") . attr (\"class\" , \"item\") . build ())"
         );
     }
 
@@ -384,7 +385,7 @@ mod tests {
         );
         assert_eq!(
             actual.to_string(),
-            ":: bloom_core :: Element :: keyed (item . id , tag (\"li\") . build () . children ({ let mut children = Vec :: with_capacity (1usize) ; children . push (\"text\" . to_string () . into ()) ; children . into () }))"
+            "keyed (item . id , tag (\"li\") . build () . children ({ let mut children = Vec :: with_capacity (1usize) ; children . push (\"text\" . to_string () . into ()) ; children . into () }))"
         );
     }
 
@@ -399,7 +400,7 @@ mod tests {
         );
         assert_eq!(
             actual.to_string(),
-            ":: bloom_core :: Element :: keyed (item . id , Row :: builder () . label (\"test\") . build ())"
+            "keyed (item . id , Row :: builder () . label (\"test\") . build ())"
         );
     }
 }

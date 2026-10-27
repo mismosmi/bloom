@@ -45,7 +45,7 @@ Children are matched to the previous render by their position.
 When a list is reordered, that hands the state of one item to another and rewrites every node in place.
 Keys identify children instead, so they keep their state and native nodes and are only moved.
 
-`Element::keyed(key, element)` wraps any element in a keyed element, and `rsx!` does this for every tag or
+`keyed(key, element)` wraps any element in a keyed element, and `rsx!` calls it for every tag or
 component with a `key`, e.g. `<li key={id}>` or `<Row key={id} />`. To key several elements at once,
 wrap them in a `<Fragment key={id}>` (`bloom_core::Fragment`).
 

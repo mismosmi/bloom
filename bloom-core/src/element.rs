@@ -21,7 +21,7 @@ where
     Node(Node, Vec<Element<Node, Error>>),
     Fragment(Vec<Element<Node, Error>>),
     Provider(Arc<dyn Any + Send + Sync>, Vec<Element<Node, Error>>),
-    /// Identifies the element among its siblings, see [Element::keyed].
+    /// Identifies the element among its siblings, see [keyed].
     Keyed(Key, Box<Element<Node, Error>>),
 }
 
@@ -32,48 +32,50 @@ where
     pub fn fragment(children: Vec<Element<N, E>>) -> Self {
         Self::Fragment(children)
     }
+}
 
-    /// A keyed element keeps its state and native nodes when it is moved within a list,
-    /// and is rebuilt from scratch when its key changes.
-    /// In rsx, any tag or component with a `key` is wrapped like this:
-    /// ```
-    /// use bloom_core::{component, Element, Fragment};
-    /// use bloom_html::{prelude::*, HtmlNode};
-    /// use bloom_rsx::rsx;
-    ///
-    /// #[component]
-    /// fn Row(label: String) -> Result<Element<HtmlNode, ()>, ()> {
-    ///     Ok(rsx!(<li>{label.clone()}</li>))
-    /// }
-    ///
-    /// let items = vec![(1, "one"), (2, "two")];
-    /// let lists: Element<HtmlNode, ()> = rsx!(
-    ///     <ul>{items.iter().map(|(id, label)| rsx!(<li key={id}>{*label}</li>)).collect::<Vec<_>>()}</ul>
-    ///     <ul>{items.iter().map(|(id, label)| rsx!(<Row key={id} label=*label />)).collect::<Vec<_>>()}</ul>
-    ///     <dl>{items.iter().map(|(id, label)| rsx!(
-    ///         <Fragment key={id}><dt>{id.to_string()}</dt><dd>{*label}</dd></Fragment>
-    ///     )).collect::<Vec<_>>()}</dl>
-    /// );
-    /// # let html = futures_executor::block_on(bloom_ssr::render_to_string(
-    /// #     lists,
-    /// #     futures_executor::ThreadPool::new().unwrap(),
-    /// # ));
-    /// # assert_eq!(html, Ok(concat!(
-    /// #     "<ul><li>one</li><li>two</li></ul>",
-    /// #     "<ul><li>one</li><li>two</li></ul>",
-    /// #     "<dl><dt>1</dt><dd>one</dd><dt>2</dt><dd>two</dd></dl>",
-    /// # ).to_string()));
-    ///
-    /// // Without rsx
-    /// let item: Element<HtmlNode, ()> = Element::keyed(1, tag("li").build().children(vec!["one".into()]));
-    /// ```
-    pub fn keyed<K, T>(key: K, element: T) -> Self
-    where
-        K: Hash,
-        T: Into<Element<N, E>>,
-    {
-        Self::Keyed(Key::new(key), Box::new(element.into()))
-    }
+/// A keyed element keeps its state and native nodes when it is moved within a list,
+/// and is rebuilt from scratch when its key changes.
+/// rsx calls this function for every tag or component with a `key`, so it has to be in scope.
+/// `bloom_html::prelude` re-exports it next to `tag`:
+/// ```
+/// use bloom_core::{component, Element, Fragment};
+/// use bloom_html::{prelude::*, HtmlNode};
+/// use bloom_rsx::rsx;
+///
+/// #[component]
+/// fn Row(label: String) -> Result<Element<HtmlNode, ()>, ()> {
+///     Ok(rsx!(<li>{label.clone()}</li>))
+/// }
+///
+/// let items = vec![(1, "one"), (2, "two")];
+/// let lists: Element<HtmlNode, ()> = rsx!(
+///     <ul>{items.iter().map(|(id, label)| rsx!(<li key={id}>{*label}</li>)).collect::<Vec<_>>()}</ul>
+///     <ul>{items.iter().map(|(id, label)| rsx!(<Row key={id} label=*label />)).collect::<Vec<_>>()}</ul>
+///     <dl>{items.iter().map(|(id, label)| rsx!(
+///         <Fragment key={id}><dt>{id.to_string()}</dt><dd>{*label}</dd></Fragment>
+///     )).collect::<Vec<_>>()}</dl>
+/// );
+/// # let html = futures_executor::block_on(bloom_ssr::render_to_string(
+/// #     lists,
+/// #     futures_executor::ThreadPool::new().unwrap(),
+/// # ));
+/// # assert_eq!(html, Ok(concat!(
+/// #     "<ul><li>one</li><li>two</li></ul>",
+/// #     "<ul><li>one</li><li>two</li></ul>",
+/// #     "<dl><dt>1</dt><dd>one</dd><dt>2</dt><dd>two</dd></dl>",
+/// # ).to_string()));
+///
+/// // Without rsx
+/// let item: Element<HtmlNode, ()> = keyed(1, tag("li").build().children(vec!["one".into()]));
+/// ```
+pub fn keyed<N, E, K, T>(key: K, element: T) -> Element<N, E>
+where
+    N: From<String>,
+    K: Hash,
+    T: Into<Element<N, E>>,
+{
+    Element::Keyed(Key::new(key), Box::new(element.into()))
 }
 
 impl<N, E> From<Vec<Element<N, E>>> for Element<N, E>

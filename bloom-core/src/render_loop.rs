@@ -801,8 +801,8 @@ mod tests {
     use futures_util::{task::Spawn, Future, FutureExt};
 
     use crate::{
-        use_effect, use_ref_with_default, use_state, Component, Element, Fragment, ObjectModel,
-        Provider,
+        keyed, use_effect, use_ref_with_default, use_state, Component, Element, Fragment,
+        ObjectModel, Provider,
     };
 
     fn node_id(node: &Arc<MockNode>) -> usize {
@@ -1693,13 +1693,13 @@ mod tests {
     }
 
     fn keyed_fragment(key: i32, children: Vec<Element<MockNode, ()>>) -> Element<MockNode, ()> {
-        Element::keyed(key, Fragment::builder().children(children).build())
+        keyed(key, Fragment::builder().children(children).build())
     }
 
     fn keyed_nodes(ids: &[i32]) -> Element<MockNode, ()> {
         Element::fragment(
             ids.iter()
-                .map(|id| Element::keyed(*id, Element::Node(MockNode(*id), vec![])))
+                .map(|id| keyed(*id, Element::Node(MockNode(*id), vec![])))
                 .collect(),
         )
     }
@@ -1766,7 +1766,7 @@ mod tests {
                     Element::fragment(
                         ids.iter()
                             .map(|id| {
-                                Element::keyed(
+                                keyed(
                                     *id,
                                     Provider::builder()
                                         .value(*id)
@@ -1879,9 +1879,7 @@ mod tests {
                     Element::Node(
                         MockNode(100),
                         ids.iter()
-                            .map(|id| {
-                                Element::keyed(*id, Element::Component(Arc::new(Item { id: *id })))
-                            })
+                            .map(|id| keyed(*id, Element::Component(Arc::new(Item { id: *id }))))
                             .collect(),
                     )
                 });
@@ -1932,7 +1930,7 @@ mod tests {
                 // Each step renders a single form with [id, value]
                 let mut harness =
                     StepsHarness::start(vec![vec![1, 10], vec![1, 11], vec![2, 20]], |step| {
-                        Element::keyed(
+                        keyed(
                             step[0],
                             Element::Component(Arc::new(Form {
                                 id: step[0],
