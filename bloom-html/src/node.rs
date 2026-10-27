@@ -30,7 +30,7 @@ pub enum HtmlNode {
 
 impl HtmlNode {
     pub fn element(tag_name: &'static str) -> HtmlElementBuilder<&'static str> {
-        HtmlElement::new().tag_name(tag_name)
+        HtmlElement::builder().tag_name(tag_name)
     }
 
     pub fn text(text: String) -> Self {
@@ -38,7 +38,7 @@ impl HtmlNode {
     }
 
     pub fn comment(text: String) -> HtmlCommentBuilder<String> {
-        HtmlComment::new().text(text)
+        HtmlComment::builder().text(text)
     }
 
     pub fn as_element(&self) -> Option<&HtmlElement> {
@@ -98,5 +98,5 @@ impl<E> From<HtmlNode> for Element<HtmlNode, E> {
 }
 
 pub fn tag(tag_name: &'static str) -> HtmlElementBuilder<&'static str> {
-    HtmlElement::new().tag_name(tag_name)
+    HtmlElement::builder().tag_name(tag_name)
 }

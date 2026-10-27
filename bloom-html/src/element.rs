@@ -26,11 +26,10 @@ impl HtmlElement {
     /// ```
     /// use bloom_html::HtmlElement;
     ///
-    /// let div = HtmlElement::new().tag_name("div").build();
+    /// let div = HtmlElement::builder().tag_name("div").build();
     /// assert_eq!(div.tag_name(), "div");
     /// ```
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new() -> HtmlElementBuilder<()> {
+    pub fn builder() -> HtmlElementBuilder<()> {
         HtmlElementBuilder {
             tag_name: (),
             attributes: HashMap::new(),
@@ -86,7 +85,7 @@ impl<T> HtmlElementBuilder<T> {
     /// ```
     /// use bloom_html::HtmlElement;
     ///
-    /// let div = HtmlElement::new().tag_name("div").attr("id", "foo").build();
+    /// let div = HtmlElement::builder().tag_name("div").attr("id", "foo").build();
     /// assert_eq!(div.attributes().get("id").map(String::as_str), Some("foo"));
     /// ```
     /// builds a `<div id="foo">`
@@ -104,7 +103,7 @@ impl<T> HtmlElementBuilder<T> {
     /// ```
     /// use bloom_html::HtmlElement;
     ///
-    /// let div = HtmlElement::new()
+    /// let div = HtmlElement::builder()
     ///     .tag_name("div")
     ///     .on("click", |_event| println!("clicked"))
     ///     .build();
