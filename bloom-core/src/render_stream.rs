@@ -105,6 +105,7 @@ where
             spawner,
             ctx.with_context(provider),
         ))),
+        Element::Keyed(_, element) => render_element(*element, spawner, ctx),
     }
 }
 

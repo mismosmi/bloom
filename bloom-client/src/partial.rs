@@ -68,6 +68,15 @@ impl ObjectModel for PartialDom {
         self.0.remove(node, parent)
     }
 
+    fn move_node(
+        &mut self,
+        node: &Arc<Self::Node>,
+        parent: &Arc<Self::Node>,
+        sibling: &Option<Arc<Self::Node>>,
+    ) {
+        self.0.move_node(node, parent, sibling)
+    }
+
     fn finalize(&mut self) -> impl futures_util::Future<Output = ()> + Send {
         self.0.finalize()
     }

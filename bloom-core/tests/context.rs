@@ -20,10 +20,12 @@ fn Consumer(name: &'static str) -> Result<Element<HtmlNode, ()>, ()> {
 
 #[test]
 fn consumers_share_the_provided_value() {
-    let app: Element<HtmlNode, ()> = Provider::new(Shared::default()).children(vec![rsx!(
-        <Consumer name="first" />
-        <Consumer name="second" />
-    )]);
+    let app: Element<HtmlNode, ()> = rsx!(
+        <Provider value={Shared::default()}>
+            <Consumer name="first" />
+            <Consumer name="second" />
+        </Provider>
+    );
 
     futures_executor::block_on(bloom_ssr::render_to_string(
         app,
