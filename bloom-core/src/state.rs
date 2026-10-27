@@ -5,12 +5,12 @@ use async_context::with_async_context_mut;
 
 use crate::{hook::Hook, Element};
 
+type StateUpdateFn = Box<
+    dyn FnOnce(Option<Arc<dyn Any + Send + Sync>>) -> Arc<dyn Any + Send + Sync> + Send + 'static,
+>;
+
 pub(crate) struct StateUpdate {
-    update: Box<
-        dyn FnOnce(Option<Arc<dyn Any + Send + Sync>>) -> Arc<dyn Any + Send + Sync>
-            + Send
-            + 'static,
-    >,
+    update: StateUpdateFn,
     index: u16,
 }
 
@@ -28,16 +28,36 @@ impl StateUpdate {
 
 /// The state object can be dereferenced to obtain the current value.
 /// ```
+/// use bloom_core::use_state;
+///
 /// let my_state = use_state(|| 0);
 ///
 /// assert_eq!(0, *my_state);
 /// ```
 ///
-/// It's update-method can be used to change the state.
-/// ```
-/// my_state.update(|value| *value + 1);
-/// ```
+/// Its update-method can be used to change the state.
 /// This will trigger a re-render of the component.
+/// ```
+/// # use std::sync::Arc;
+/// # use async_trait::async_trait;
+/// # use bloom_core::{use_state, Component, Element};
+/// # use bloom_html::{prelude::*, HtmlNode};
+/// # use bloom_rsx::rsx;
+/// # #[derive(PartialEq)]
+/// # struct Counter;
+/// # #[async_trait]
+/// # impl Component for Counter {
+/// #     type Node = HtmlNode;
+/// #     type Error = ();
+/// #     async fn render(self: Arc<Self>) -> Result<Element<HtmlNode, ()>, ()> {
+/// let my_state = use_state(|| 0);
+///
+/// Ok(rsx!(
+///     <button on_click={move |_| my_state.update(|value| *value + 1)}>"Increment"</button>
+/// ))
+/// #     }
+/// # }
+/// ```
 #[derive(Clone)]
 pub struct State<T> {
     value: Arc<T>,
@@ -77,8 +97,8 @@ where
     T: Send + Sync + 'static,
 {
     fn mock(value: T) -> Self {
-        let (mock_signal, _) = bounded(0);
-        let (mock_updater, _) = bounded(0);
+        let (mock_signal, _) = bounded(1);
+        let (mock_updater, _) = bounded(1);
         State {
             value: Arc::new(value),
             signal: mock_signal,

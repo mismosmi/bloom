@@ -11,6 +11,7 @@ repository = "https://github.com/mismosmi/bloom/tree/main/bloom-html"
 
 [dependencies]
 bloom-core = { version = "0.1.1", path = "../bloom-core" }
-builder-pattern = "0.4.2"
-derive_builder = "0.20.0"
 web-sys = { version = "0.3", features = ["Event", "HtmlElement"] }
+
+[dev-dependencies]
+bloom-rsx = { path = "../bloom-rsx" }

@@ -1,7 +1,7 @@
 use std::{panic, sync::Arc};
 
 use bloom_client::{get_element_by_id, render};
-use bloom_core::{use_effect, use_ref, use_state};
+use bloom_core::{use_effect, use_ref, use_state, Element};
 use bloom_html::{tag, tag::div, DomRef, HtmlNode};
 use bloom_rsx::rsx;
 use wasm_bindgen::prelude::*;

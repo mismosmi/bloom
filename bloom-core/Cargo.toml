@@ -10,12 +10,17 @@ repository = "https://github.com/mismosmi/bloom/tree/main/bloom-core"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-futures-util = { version = "0.3.30", features = ["channel"] }
-async-trait = "0.1.80"
+futures-util = { version = "0.3.34", features = ["channel"] }
+async-trait = "0.1.92"
 async-context = { version = "0.1.0", path = "../async-context" }
-async-channel = "2.2.1"
-pin-project = "1.1.5"
+async-channel = "2.5.0"
+pin-project = "1.1.13"
 bloom-macro = { version = "0.1.0", path = "../bloom-macro" }
+bon = "3.10.3"
 
 [dev-dependencies]
-tokio = { version = "1.37.0", features = ["macros", "rt"] }
+bloom-html = { path = "../bloom-html" }
+bloom-rsx = { path = "../bloom-rsx" }
+bloom-ssr = { path = "../bloom-ssr" }
+futures-executor = { version = "0.3.34", features = ["thread-pool"] }
+tokio = { version = "1.54.1", features = ["macros", "rt"] }

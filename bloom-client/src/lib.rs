@@ -24,14 +24,30 @@ pub fn get_element_by_id(id: &str) -> Option<HtmlElement> {
 
 /// Use the render-function to construct the DOM for a component completely on the client.
 /// Pass it your bloom-component and the root HtmlElement to render it into.
-/// ```
-/// use bloom_client::{render, get_element_by_id};
-/// use bloom_rsx::rsx;
+/// ```no_run
+/// # use std::sync::Arc;
+/// # use async_trait::async_trait;
+/// # use bloom_core::{Component, Element};
+/// # use bloom_html::{prelude::*, HtmlNode};
+/// use bloom_client::{get_element_by_id, render};
+/// use bloom_rsx::{rsx, NoopBuilder};
+/// use wasm_bindgen::prelude::*;
 ///
+/// # #[derive(PartialEq, NoopBuilder)]
+/// # struct MyComponent;
+/// # #[async_trait]
+/// # impl Component for MyComponent {
+/// #     type Node = HtmlNode;
+/// #     type Error = ();
+/// #     async fn render(self: Arc<Self>) -> Result<Element<HtmlNode, ()>, ()> {
+/// #         Ok(rsx!(<div />))
+/// #     }
+/// # }
 /// #[wasm_bindgen(start)]
 /// fn run() {
 ///     render(get_element_by_id("root").unwrap(), rsx!(<MyComponent />));
 /// }
+/// # fn main() {}
 /// ```
 pub fn render<E>(root: HtmlElement, element: Element<HtmlNode, E>)
 where

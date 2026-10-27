@@ -6,6 +6,7 @@ mod node;
 pub mod tag;
 
 use bloom_core::Element;
+pub use comment::HtmlComment;
 pub use dom_ref::DomRef;
 pub use element::HtmlElement;
 pub use event::EventHandler;

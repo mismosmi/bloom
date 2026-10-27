@@ -1,12 +1,9 @@
 #![cfg(not(target_arch = "wasm32"))]
-use std::sync::Arc;
-
-use axum::{async_trait, body::Body, extract::Query, routing::get, Router};
-use bloom_core::{Component, Element};
+use axum::{body::Body, extract::Query, routing::get, Router};
+use bloom_core::{component, Element};
 use bloom_html::{tag::div, text, HtmlNode};
 use bloom_server_example::{hydration, partial_hydration, TokioSpawner};
 use bloom_ssr::render_to_stream;
-use builder_pattern::Builder;
 use serde::Deserialize;
 
 #[tokio::main]
@@ -15,7 +12,10 @@ async fn main() {
     let app = Router::new()
         .route("/", get(home))
         .route("/hydrate", get(hydration::server::hydration_page))
-        .route("/hydrate-partial", get(partial_hydration::hydrate()))
+        .route(
+            "/hydrate-partial",
+            get(partial_hydration::server::hydration_page),
+        )
         .route("/bundle.js", get(bloom_server_example::bundle::bundle_js))
         .route(
             "/bloom_server_example_bg.wasm",
@@ -32,26 +32,16 @@ struct QueryParams {
     name: Option<String>,
 }
 
-#[derive(PartialEq, Builder)]
-struct HomePage {
-    name: String,
-}
-
-#[async_trait]
-impl Component for HomePage {
-    type Error = anyhow::Error;
-    type Node = HtmlNode;
-
-    async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-        Ok(div()
-            .build()
-            .children(vec![text(format!("Hello, {}!", self.name))]))
-    }
+#[component]
+fn HomePage(name: String) -> Result<Element<HtmlNode, anyhow::Error>, anyhow::Error> {
+    Ok(div()
+        .build()
+        .children(vec![text(format!("Hello, {}!", name))]))
 }
 
 async fn home(query: Query<QueryParams>) -> Body {
     Body::from_stream(render_to_stream(
-        HomePage::new()
+        HomePage::builder()
             .name(query.name.clone().unwrap_or("World".to_string()))
             .build()
             .into(),

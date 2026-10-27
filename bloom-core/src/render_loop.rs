@@ -17,6 +17,8 @@ use crate::{
     Element,
 };
 
+type RenderFuture<N, E> = Pin<Box<dyn Future<Output = (Result<Element<N, E>, E>, Hook)> + Send>>;
+
 pub(crate) struct TreeComponent<N, E>
 where
     N: From<String>,
@@ -25,7 +27,7 @@ where
     state: HashMap<u16, Arc<dyn Any + Send + Sync>>,
     updates: Receiver<StateUpdate>,
     updater: Sender<StateUpdate>,
-    render_result: Option<Pin<Box<dyn Future<Output = (Result<Element<N, E>, E>, Hook)> + Send>>>,
+    render_result: Option<RenderFuture<N, E>>,
     child: Option<Box<TreeNode<N, E>>>,
     refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
 }
@@ -97,7 +99,7 @@ where
                         return Some(node);
                     }
                 }
-                return None;
+                None
             }
             Self::Provider(_, children) => {
                 for child in children {
@@ -105,7 +107,7 @@ where
                         return Some(node);
                     }
                 }
-                return None;
+                None
             }
         }
     }
@@ -153,21 +155,58 @@ pub trait ObjectModel {
 /// </html>
 /// ```
 ///
-/// ```
-/// render_loop(get_element_by_id('root'), ...)
-/// ```
 ///
 /// The element is the root of the component tree that represents the intended UI.
-/// This is usually a component:
-/// ```
-/// render_loop(root_node, rsx!(<MyComponent />), ...)
-/// ```
+/// This is usually a component.
 ///
 /// The spawner-argument is
-/// an object that implements the Spawn-trait so bloom can spawn async tasts on
+/// an object that implements the Spawn-trait so bloom can spawn async tasks on
 /// arbitrary task runners such as tokio or async-std.
 ///
-///  The object model is the interface to the host environment.
+/// The object model is the interface to the host environment.
+/// It is notified whenever a node needs to be created, removed or updated:
+/// ```no_run
+/// # use std::sync::Arc;
+/// # use async_trait::async_trait;
+/// # use bloom_core::{Component, Element};
+/// use bloom_core::{render_loop, ObjectModel};
+/// use bloom_html::{prelude::*, HtmlNode};
+/// use bloom_rsx::{rsx, NoopBuilder};
+///
+/// struct PrintObjectModel;
+///
+/// impl ObjectModel for PrintObjectModel {
+///     type Node = HtmlNode;
+///
+///     fn create(&mut self, node: &Arc<HtmlNode>, _parent: &Arc<HtmlNode>, _sibling: &Option<Arc<HtmlNode>>) {
+///         println!("create {:?}", node);
+///     }
+///
+///     fn remove(&mut self, node: &Arc<HtmlNode>, _parent: &Arc<HtmlNode>) {
+///         println!("remove {:?}", node);
+///     }
+///
+///     fn update(&mut self, node: &Arc<HtmlNode>, next: &Arc<HtmlNode>) {
+///         println!("update {:?} to {:?}", node, next);
+///     }
+/// }
+///
+/// # #[derive(PartialEq, NoopBuilder)]
+/// # struct MyComponent;
+/// # #[async_trait]
+/// # impl Component for MyComponent {
+/// #     type Node = HtmlNode;
+/// #     type Error = ();
+/// #     async fn render(self: Arc<Self>) -> Result<Element<HtmlNode, ()>, ()> {
+/// #         Ok(rsx!(<div />))
+/// #     }
+/// # }
+/// let root = Arc::new(HtmlNode::element("div").build().into());
+/// let spawner = futures_executor::ThreadPool::new().unwrap();
+///
+/// futures_executor::block_on(render_loop(root, rsx!(<MyComponent />), spawner, PrintObjectModel))
+///     .unwrap();
+/// ```
 pub async fn render_loop<N, E, S, P>(
     root: Arc<N>,
     element: Element<N, E>,
@@ -190,8 +229,7 @@ where
         .try_send(())
         .expect("Failed to send message to trigger initial render");
 
-    while let Ok(_) = signal_receiver.recv().await {
-        println!("start render cycle");
+    while signal_receiver.recv().await.is_ok() {
         object_model.start().await;
         {
             let mut render_queue = RenderQueue::new();
@@ -201,7 +239,6 @@ where
             );
 
             while let Some(item) = render_queue.next() {
-                println!("rendering item");
                 match item {
                     RenderQueueItem::Create { current, ctx } => match unsafe { &mut *current } {
                         TreeNode::Component(component) => render_component(
@@ -237,7 +274,6 @@ where
                     },
                     RenderQueueItem::Reload { current, ctx } => match unsafe { &mut *current } {
                         TreeNode::Component(component) => {
-                            dbg!("reload component");
                             if component.updates.is_empty() {
                                 if let Some(render_result) = component.render_result.take() {
                                     match run_or_suspend(render_result) {
@@ -282,7 +318,6 @@ where
                             }
                         }
                         TreeNode::Node(node, children) => {
-                            dbg!("reload node");
                             let mut sibling = None;
                             for child in children.iter_mut().rev() {
                                 render_queue.reload(
@@ -311,7 +346,6 @@ where
                         }
                     },
                     RenderQueueItem::Update { current, next, ctx } => {
-                        dbg!("update item");
                         let current_node = unsafe { &mut *current };
                         match (current_node, next) {
                             (
@@ -446,7 +480,7 @@ fn update_children<N, E>(
     }
 
     let mut sibling = ctx.sibling.clone();
-    for (tree_node, element) in tree_nodes.iter_mut().zip(elements.into_iter()).rev() {
+    for (tree_node, element) in tree_nodes.iter_mut().zip(elements).rev() {
         let next_sibling = tree_node.get_first_node();
         render_queue.update(tree_node, element, ctx.with_sibling(sibling));
         sibling = next_sibling;
@@ -465,7 +499,6 @@ where
     E: Send + 'static,
     S: Spawn,
 {
-    dbg!("render component");
     while let Ok(state_update) = tree_component.updates.try_recv() {
         state_update.apply(&mut tree_component.state);
     }
@@ -483,7 +516,7 @@ where
         component.render(),
     )));
 
-    Ok(match result {
+    let _: () = match result {
         RunOrSuspendResult::Done((element, hook)) => {
             tree_component.render_result = None;
             match tree_component.child {
@@ -510,7 +543,8 @@ where
                     .expect("Failed to spawn async task"),
             ));
         }
-    })
+    };
+    Ok(())
 }
 
 fn replace_node<N, E>(
@@ -875,7 +909,7 @@ mod tests {
 
         impl PartialEq for MySender {
             fn eq(&self, other: &Self) -> bool {
-                &self.0 as *const Sender<()> == &other.0 as *const Sender<()>
+                std::ptr::eq(&self.0, &other.0)
             }
         }
 

@@ -16,55 +16,41 @@ pub trait Component: PartialEq<Self> + Send + Sync {
     /// The trait has a render method which contains the component logic.
     /// It should return the [Element] type, which is easily generated
     /// using the rsx macro from the bloom-rsx crate.
-    /// Within the render function, hooks can be used such as [bloom_core::use_state] and [bloom_core::use_effect].
+    /// Within the render function, hooks can be used such as [crate::use_state] and [crate::use_effect].
     /// ```
-    /// use bloom_core::Component;
+    /// use std::sync::Arc;
+    ///
+    /// use async_trait::async_trait;
+    /// use bloom_core::{use_state, Component, Element};
+    /// use bloom_html::{prelude::*, HtmlNode};
+    /// use bloom_rsx::rsx;
     ///
     /// #[derive(PartialEq, Debug)]
     /// struct Counter {
-    ///     initial_count: i32
+    ///     initial_count: i32,
     /// }
     ///
     /// #[async_trait]
     /// impl Component for Counter {
-    ///   type Node = HtmlNode;
-    ///   type Error = ();
+    ///     type Node = HtmlNode;
+    ///     type Error = ();
     ///
-    ///   async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-    ///     let count = use_state(|| self.initial_count);
+    ///     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+    ///         let count = use_state(|| self.initial_count);
     ///
-    ///     rsx!(
-    ///       <div>{count}</div>
-    ///       <button on_click={move |_| count.update(|count| *count + 1)}>Increment</button>
-    ///     )
-    /// ```
-    ///
-    /// Components should usually implement a builder pattern for construction using the bloom-rsx macro./// Components are roughly equivalent to React components.
-    /// The struct itself represents the props of the component.
-    /// The trait has a render method which contains the component logic.
-    /// It should return the [Element] type, which is easily generated
-    /// using the rsx macro from the bloom-rsx crate.
-    /// Within the render function, hooks can be used such as [use_state] and [use_effect].
-    /// ```
-    /// use bloom_core::Component;
-    ///
-    /// #[derive(PartialEq, Debug)]
-    /// struct Counter {
-    ///     initial_count: i32
+    ///         Ok(rsx!(
+    ///             <div>{count.to_string()}</div>
+    ///             <button on_click={move |_| count.update(|count| *count + 1)}>"Increment"</button>
+    ///         ))
+    ///     }
     /// }
     ///
-    /// #[async_trait]
-    /// impl Component for Counter {
-    ///   type Node = HtmlNode;
-    ///   type Error = ();
-    ///
-    ///   async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-    ///     let count = use_state(|| self.initial_count);
-    ///
-    ///     rsx!(
-    ///       <div>{count}</div>
-    ///       <button on_click={move |_| count.update(|count| *count + 1)}>Increment</button>
-    ///     )
+    /// # let pool = futures_executor::ThreadPool::new().unwrap();
+    /// # let html = futures_executor::block_on(bloom_ssr::render_to_string(
+    /// #     Counter { initial_count: 5 }.into(),
+    /// #     pool,
+    /// # ));
+    /// # assert_eq!(html, Ok("<div>5</div><button>Increment</button>".to_string()));
     /// ```
     ///
     /// Components should usually implement a builder pattern for construction using the bloom-rsx macro.

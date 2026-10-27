@@ -13,7 +13,8 @@ pub(crate) fn transform_component(
 ) -> proc_macro2::TokenStream {
     let name = item.sig.ident;
 
-    let mut fields = Vec::new();
+    let mut field_idents = Vec::new();
+    let mut field_types = Vec::new();
     let mut field_aliases = Vec::new();
 
     for field in item.sig.inputs.iter() {
@@ -29,15 +30,12 @@ pub(crate) fn transform_component(
             panic!("Expected ident")
         };
 
-        let ty = arg.ty.as_ref();
-
         field_aliases.push(quote! {
             let #ident = &self.#ident;
         });
 
-        fields.push(quote! {
-            #ident: #ty,
-        });
+        field_idents.push(ident.ident.clone());
+        field_types.push(arg.ty.as_ref().clone());
     }
 
     let generics = item.sig.generics;
@@ -46,16 +44,16 @@ pub(crate) fn transform_component(
     let body = item.block;
     let return_type = item.sig.output;
 
-    let (node_type, error_type) = match return_type {
+    let (node_type, error_type) = match return_type.clone() {
         syn::ReturnType::Default => {
             panic!("{}", RETURN_TYPE_ERROR_MSG)
         }
         syn::ReturnType::Type(_arrow, return_type) => match *return_type {
-            syn::Type::Path(TypePath { path, qself: _ }) => {
+            syn::Type::Path(TypePath { path, .. }) => {
                 let result = path
                     .segments
                     .into_iter()
-                    .last()
+                    .next_back()
                     .expect(RETURN_TYPE_ERROR_MSG);
 
                 let (ok_type, err_type) =
@@ -85,7 +83,7 @@ pub(crate) fn transform_component(
                         .path
                         .segments
                         .into_iter()
-                        .last()
+                        .next_back()
                         .expect(RETURN_TYPE_ERROR_MSG)
                         .arguments
                     {
@@ -113,13 +111,27 @@ pub(crate) fn transform_component(
         },
     };
 
-    if fields.is_empty() {
-        quote! {
+    let component_impl = quote! {
+        #[bloom_core::__private::async_trait]
+        impl #impl_gen bloom_core::Component for #name #ty_gen #where_gen {
+            type Node = #node_type;
+            type Error = #error_type;
+
+            async fn render(self: std::sync::Arc<Self>) #return_type {
+                #(#field_aliases)*
+
+                #body
+            }
+        }
+    };
+
+    if field_idents.is_empty() {
+        return quote! {
             #[derive(PartialEq)]
             #visibility struct #name;
 
             impl #name {
-                #visibility fn new() -> #name {
+                #visibility fn builder() -> #name {
                     #name
                 }
 
@@ -128,37 +140,20 @@ pub(crate) fn transform_component(
                 }
             }
 
-            #[async_trait::async_trait]
-            #visibility impl #impl_gen bloom_core::Component for #name #ty_gen #where_gen {
-                type Node = #node_type;
-                type Error = #error_type;
+            #component_impl
+        };
+    }
 
-                async fn render(self: std::sync::Arc<Self>) -> Result<bloom_core::Element<Self::Node, Self::Error>, Self::Error> {
-                    #(#field_aliases)*
-
-                    #body
-                }
-            }
+    // bon generates a builder that only offers build() once every required prop is set.
+    // Option<T> props are optional and every setter accepts anything that converts into the prop type.
+    quote! {
+        #[derive(PartialEq, ::bloom_core::__private::bon::Builder)]
+        #[builder(crate = ::bloom_core::__private::bon, on(_, into))]
+        #visibility struct #name #ty_gen #where_gen {
+            #(#field_idents: #field_types,)*
         }
-    } else {
-        quote! {
-            #[derive(PartialEq, builder_pattern::Builder)]
-            #visibility struct #name #ty_gen #where_gen {
-                #(#[into] #fields)*
-            }
 
-            #[async_trait::async_trait]
-            #visibility impl #impl_gen bloom_core::Component for #name #ty_gen #where_gen {
-                type Node = #node_type;
-                type Error = #error_type;
-
-                async fn render(self: std::sync::Arc<Self>) -> Result<bloom_core::Element<Self::Node, Self::Error>, Self::Error> {
-                    #(#field_aliases)*
-
-                    #body
-                }
-            }
-        }
+        #component_impl
     }
 }
 

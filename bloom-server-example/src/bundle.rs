@@ -12,4 +12,3 @@ pub async fn bundle_js() -> impl IntoResponse {
 pub async fn bundle_wasm() -> impl IntoResponse {
     ([("Content-Type", "application/wasm")], BUNDLE_WASM)
 }
-

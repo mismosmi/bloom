@@ -24,9 +24,12 @@ impl Debug for HtmlElement {
 impl HtmlElement {
     /// Build a new HtmlElement
     /// ```
-    /// HtmlElement::new().tag_name("div").build();
+    /// use bloom_html::HtmlElement;
+    ///
+    /// let div = HtmlElement::builder().tag_name("div").build();
+    /// assert_eq!(div.tag_name(), "div");
     /// ```
-    pub fn new() -> HtmlElementBuilder<()> {
+    pub fn builder() -> HtmlElementBuilder<()> {
         HtmlElementBuilder {
             tag_name: (),
             attributes: HashMap::new(),
@@ -36,7 +39,7 @@ impl HtmlElement {
     }
 
     pub fn tag_name(&self) -> &str {
-        &self.tag_name
+        self.tag_name
     }
 
     /// get a map of all the attributes:
@@ -47,8 +50,8 @@ impl HtmlElement {
     }
 
     /// get a map of all the callbacks / event handlers:
-    /// For a `<div on_click=|_| { alert!("clicked")}>` this would return
-    /// `{ "click": |event| { alert!("clicked") } }`
+    /// For a `<div on_click=|_| println!("clicked")>` this would return
+    /// `{ "click": |_| println!("clicked") }`
     pub fn callbacks(&self) -> &HashMap<String, EventHandler> {
         &self.callbacks
     }
@@ -80,7 +83,10 @@ impl HtmlElementBuilder<()> {
 impl<T> HtmlElementBuilder<T> {
     /// set one specific attribute of the element:
     /// ```
-    /// HtmlElement::new().tag_name("div").attr("id", "foo").build();
+    /// use bloom_html::HtmlElement;
+    ///
+    /// let div = HtmlElement::builder().tag_name("div").attr("id", "foo").build();
+    /// assert_eq!(div.attributes().get("id").map(String::as_str), Some("foo"));
     /// ```
     /// builds a `<div id="foo">`
     pub fn attr<K, V>(mut self, key: K, value: V) -> Self
@@ -95,9 +101,15 @@ impl<T> HtmlElementBuilder<T> {
 
     /// Set one specific callback / event handler:
     /// ```
-    /// HtmlElement::new().tag_name("div").on("click", |event| { alert!("clicked") }).build();
+    /// use bloom_html::HtmlElement;
+    ///
+    /// let div = HtmlElement::builder()
+    ///     .tag_name("div")
+    ///     .on("click", |_event| println!("clicked"))
+    ///     .build();
+    /// assert!(div.callbacks().contains_key("click"));
     /// ```
-    /// builds a div that will send an alert on the "click"-event
+    /// builds a div that will print "clicked" on the "click"-event
     pub fn on<K, C>(mut self, key: K, handler: C) -> Self
     where
         K: Into<String>,

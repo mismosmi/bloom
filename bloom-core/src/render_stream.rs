@@ -67,7 +67,7 @@ impl RenderContext {
 
     fn with_context(&self, value: Arc<dyn Any + Send + Sync>) -> Self {
         let mut new_context = self.context.as_ref().clone();
-        new_context.insert(value.type_id(), value);
+        new_context.insert((*value).type_id(), value);
         Self {
             context: Arc::new(new_context),
         }

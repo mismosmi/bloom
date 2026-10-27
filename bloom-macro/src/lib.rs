@@ -1,4 +1,3 @@
-mod client_component;
 mod component;
 
 use component::transform_component;

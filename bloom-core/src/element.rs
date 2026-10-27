@@ -5,7 +5,10 @@ use crate::component::{AnyComponent, ComponentDiff};
 /// The element type is returned from component render-functions.
 /// It can be constructed from a Node-type, e.G. HtmlNode, or a Component.
 /// ```
-/// HtmlNode::element("div").attr("id", "test123").build().into()
+/// use bloom_core::Element;
+/// use bloom_html::HtmlNode;
+///
+/// let element: Element<HtmlNode, ()> = HtmlNode::element("div").attr("id", "test123").build().into();
 /// ```
 pub enum Element<Node, Error>
 where

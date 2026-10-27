@@ -77,7 +77,7 @@ impl ObjectModel for PartialDom {
             let mut context = context.borrow_mut();
             let context = context
                 .entry(self.1)
-                .or_insert_with(|| PartialRenderingContext::default());
+                .or_insert_with(PartialRenderingContext::default);
             context.subscribers.push(signal);
         });
     }

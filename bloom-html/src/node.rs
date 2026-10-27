@@ -15,7 +15,11 @@ use crate::{
 ///
 /// HtmlNodes will be mainly constructed using bloom-rsx:
 /// ```
-/// rsx!(<div id="123" on_click=|_| { alert!("clicked")} />)
+/// use bloom_core::Element;
+/// use bloom_html::{prelude::*, HtmlNode};
+/// use bloom_rsx::rsx;
+///
+/// let element: Element<HtmlNode, ()> = rsx!(<div id="123" on_click={|_| println!("clicked")} />);
 /// ```
 #[derive(Debug, PartialEq, Clone)]
 pub enum HtmlNode {
@@ -26,7 +30,7 @@ pub enum HtmlNode {
 
 impl HtmlNode {
     pub fn element(tag_name: &'static str) -> HtmlElementBuilder<&'static str> {
-        HtmlElement::new().tag_name(tag_name)
+        HtmlElement::builder().tag_name(tag_name)
     }
 
     pub fn text(text: String) -> Self {
@@ -34,7 +38,7 @@ impl HtmlNode {
     }
 
     pub fn comment(text: String) -> HtmlCommentBuilder<String> {
-        HtmlComment::new().text(text)
+        HtmlComment::builder().text(text)
     }
 
     pub fn as_element(&self) -> Option<&HtmlElement> {
@@ -94,5 +98,5 @@ impl<E> From<HtmlNode> for Element<HtmlNode, E> {
 }
 
 pub fn tag(tag_name: &'static str) -> HtmlElementBuilder<&'static str> {
-    HtmlElement::new().tag_name(tag_name)
+    HtmlElement::builder().tag_name(tag_name)
 }

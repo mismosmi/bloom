@@ -58,7 +58,7 @@ impl<N> RenderContext<N> {
 
     pub(crate) fn with_context(&self, value: Arc<dyn Any + Send + Sync>) -> Self {
         let mut new_context = self.context.as_ref().clone();
-        new_context.insert(value.type_id(), value);
+        new_context.insert((*value).type_id(), value);
         Self {
             parent: self.parent.clone(),
             sibling: self.sibling.clone(),
@@ -72,7 +72,7 @@ impl<N> RenderContext<N> {
         value: Arc<dyn Any + Send + Sync>,
     ) -> Self {
         let mut new_context = self.context.as_ref().clone();
-        new_context.insert(value.type_id(), value);
+        new_context.insert((*value).type_id(), value);
         Self {
             parent: self.parent.clone(),
             sibling,
@@ -201,7 +201,7 @@ where
             let mut next_cleanups = Vec::with_capacity(effects.len());
             if let Some(cleanups) = self.cleanups.remove(&component) {
                 for ((effect_hash, effect), (cleanup_hash, cleanup)) in
-                    effects.into_iter().zip(cleanups.into_iter())
+                    effects.into_iter().zip(cleanups)
                 {
                     if effect_hash == cleanup_hash {
                         next_cleanups.push((cleanup_hash, cleanup));
@@ -227,6 +227,8 @@ mod tests {
     #[test]
     fn basic_render_queue() {
         struct TreeNode {
+            // boxed so node addresses stay stable while the Vec grows
+            #[allow(clippy::vec_box)]
             children: Vec<Box<TreeNode>>,
         }
 

@@ -1,6 +1,5 @@
 //! A way to have some context within async functions. This can be used to implement React-like hooks.
 //!
-#![feature(box_into_inner)]
 
 use core::future::Future;
 use std::{any::Any, cell::RefCell, pin::Pin, sync::Mutex, task::Poll};
@@ -58,14 +57,14 @@ where
         let projection = self.project();
         let future: Pin<&mut F> = projection.future;
         let poll = future.poll(cx);
-        let ctx: C = Box::into_inner(CTX.replace(Box::new(())).downcast().unwrap());
+        let ctx: C = *CTX.replace(Box::new(())).downcast().unwrap();
         match poll {
-            Poll::Ready(value) => return Poll::Ready((value, ctx)),
+            Poll::Ready(value) => Poll::Ready((value, ctx)),
             Poll::Pending => {
                 projection
                     .ctx
-                    .lock()
-                    .expect("Feiled to lock context mutex")
+                    .get_mut()
+                    .expect("Failed to lock context mutex")
                     .replace(ctx);
                 Poll::Pending
             }
@@ -79,7 +78,7 @@ where
     F: FnOnce(Option<&C>) -> R,
     C: 'static,
 {
-    return CTX.with(|value| f(value.borrow().downcast_ref::<C>()));
+    CTX.with(|value| f(value.borrow().downcast_ref::<C>()))
 }
 
 /// Retrieves mutable ref for async context in order to read values.
@@ -88,7 +87,7 @@ where
     F: FnOnce(Option<&mut C>) -> R,
     C: 'static,
 {
-    return CTX.with(|value| f(value.borrow_mut().downcast_mut::<C>()));
+    CTX.with(|value| f(value.borrow_mut().downcast_mut::<C>()))
 }
 
 #[cfg(test)]
@@ -98,8 +97,7 @@ mod tests {
     #[tokio::test]
     async fn it_works() {
         async fn runs_with_context() -> String {
-            let value = with_async_context(|value: Option<&String>| value.unwrap().clone());
-            value
+            with_async_context(|value: Option<&String>| value.unwrap().clone())
         }
 
         let async_context = provide_async_context("foobar".to_string(), runs_with_context());
