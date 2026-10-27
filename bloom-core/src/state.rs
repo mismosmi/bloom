@@ -154,7 +154,9 @@ where
                     index,
                 }
             } else {
+                // Store the initial value so later renders don't build it again
                 let value = Arc::new(default());
+                hook.state.insert(index, value.clone());
                 State {
                     value,
                     signal,
