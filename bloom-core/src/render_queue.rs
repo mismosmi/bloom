@@ -1,7 +1,6 @@
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{any::Any, cell::RefCell, mem, rc::Rc, sync::Arc};
 
 use crate::{
-    component::AnyComponent,
     context::ContextMap,
     effect::{Cleanup, Effect},
     Element,
@@ -104,14 +103,22 @@ where
     },
 }
 
+/// The cleanups of a component's effects, kept from one render pass to the next
+#[derive(Default)]
+pub(crate) struct ComponentEffects {
+    cleanups: Vec<(u64, Cleanup)>,
+    unmounted: bool,
+}
+
+pub(crate) type EffectSlot = Rc<RefCell<ComponentEffects>>;
+
 pub(crate) struct RenderQueue<N, E, TN>
 where
     N: From<String>,
 {
     queue: Vec<RenderQueueItem<N, E, TN>>,
-    effects: HashMap<*const (), Vec<(u64, Effect)>>,
-    cleanups: HashMap<*const (), Vec<(u64, Cleanup)>>,
-    clear_cleanups: Vec<*const ()>,
+    effects: Vec<(EffectSlot, Vec<(u64, Effect)>)>,
+    unmounted: Vec<EffectSlot>,
 }
 
 impl<N, E, TN> RenderQueue<N, E, TN>
@@ -121,9 +128,8 @@ where
     pub(crate) fn new() -> Self {
         Self {
             queue: Vec::new(),
-            effects: HashMap::new(),
-            cleanups: HashMap::new(),
-            clear_cleanups: Vec::new(),
+            effects: Vec::new(),
+            unmounted: Vec::new(),
         }
     }
 
@@ -154,67 +160,49 @@ where
         self.queue.pop()
     }
 
-    pub(crate) fn queue_effects(
-        &mut self,
-        component: &Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>,
-        effects: Vec<(u64, Effect)>,
-    ) {
-        self.effects.insert(
-            component.as_ref() as *const dyn AnyComponent<Node = N, Error = E> as *const (),
-            effects,
-        );
+    pub(crate) fn queue_effects(&mut self, slot: &EffectSlot, effects: Vec<(u64, Effect)>) {
+        self.effects.push((Rc::clone(slot), effects));
     }
 
-    pub(crate) fn queue_cleanups(
-        &mut self,
-        component: &Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>,
-    ) {
-        self.clear_cleanups
-            .push(component.as_ref() as *const dyn AnyComponent<Node = N, Error = E> as *const ());
-    }
-
-    pub(crate) fn move_cleanups(
-        &mut self,
-        old_component: &Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>,
-        new_component: &Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>,
-    ) {
-        if let Some(cleanups) = self.cleanups.remove(
-            &(old_component.as_ref() as *const dyn AnyComponent<Node = N, Error = E> as *const ()),
-        ) {
-            self.cleanups.insert(
-                new_component.as_ref() as *const dyn AnyComponent<Node = N, Error = E> as *const (),
-                cleanups,
-            );
-        }
+    /// Runs the cleanups of an unmounted component after the render pass
+    pub(crate) fn unmount(&mut self, slot: &EffectSlot) {
+        self.unmounted.push(Rc::clone(slot));
     }
 
     pub(crate) fn run_effects(&mut self) {
-        for component in self.clear_cleanups.drain(..) {
-            if let Some(cleanups) = self.cleanups.remove(&component) {
-                for (_, cleanup) in cleanups {
-                    cleanup.run()
-                }
+        for slot in self.unmounted.drain(..) {
+            let mut slot = slot.borrow_mut();
+            slot.unmounted = true;
+            for (_, cleanup) in slot.cleanups.drain(..) {
+                cleanup.run();
             }
         }
 
-        for (component, effects) in self.effects.drain() {
+        for (slot, effects) in self.effects.drain(..) {
+            let mut slot = slot.borrow_mut();
+            if slot.unmounted {
+                continue;
+            }
+
+            let mut cleanups = mem::take(&mut slot.cleanups).into_iter();
             let mut next_cleanups = Vec::with_capacity(effects.len());
-            if let Some(cleanups) = self.cleanups.remove(&component) {
-                for ((effect_hash, effect), (cleanup_hash, cleanup)) in
-                    effects.into_iter().zip(cleanups)
-                {
-                    if effect_hash == cleanup_hash {
+            for (effect_hash, effect) in effects {
+                match cleanups.next() {
+                    // The arguments haven't changed, so the effect doesn't run again
+                    Some((cleanup_hash, cleanup)) if cleanup_hash == effect_hash => {
                         next_cleanups.push((cleanup_hash, cleanup));
-                    } else {
+                    }
+                    Some((_, cleanup)) => {
                         cleanup.run();
                         next_cleanups.push((effect_hash, effect.run()));
                     }
-                }
-            } else {
-                for (effect_hash, effect) in effects {
-                    next_cleanups.push((effect_hash, effect.run()));
+                    None => next_cleanups.push((effect_hash, effect.run())),
                 }
             }
+            for (_, cleanup) in cleanups {
+                cleanup.run();
+            }
+            slot.cleanups = next_cleanups;
         }
     }
 }

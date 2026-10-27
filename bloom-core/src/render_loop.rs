@@ -11,7 +11,7 @@ use crate::{
     component::{AnyComponent, ComponentDiff},
     context::ContextMap,
     hook::Hook,
-    render_queue::{RenderContext, RenderQueue, RenderQueueItem},
+    render_queue::{EffectSlot, RenderContext, RenderQueue, RenderQueueItem},
     state::StateUpdate,
     suspense::{run_or_suspend, RunOrSuspendResult},
     Element,
@@ -30,6 +30,7 @@ where
     render_result: Option<RenderFuture<N, E>>,
     child: Option<Box<TreeNode<N, E>>>,
     refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
+    effects: EffectSlot,
 }
 
 impl<N, E> TreeComponent<N, E>
@@ -46,6 +47,7 @@ where
             child: None,
             render_result: None,
             refs: HashMap::new(),
+            effects: EffectSlot::default(),
         }
     }
 }
@@ -162,6 +164,10 @@ pub trait ObjectModel {
 /// The spawner-argument is
 /// an object that implements the Spawn-trait so bloom can spawn async tasks on
 /// arbitrary task runners such as tokio or async-std.
+///
+/// The future returned by render_loop is not `Send` because it keeps the cleanups of effects,
+/// which can hold values that are not `Send` such as JavaScript objects.
+/// Run it on a single-threaded executor, e.g. with `spawn_local`.
 ///
 /// The object model is the interface to the host environment.
 /// It is notified whenever a node needs to be created, removed or updated:
@@ -286,7 +292,7 @@ where
                                         }
                                         RunOrSuspendResult::Done((result, hook)) => {
                                             render_queue
-                                                .queue_effects(&component.component, hook.effects);
+                                                .queue_effects(&component.effects, hook.effects);
                                             component.refs = hook.refs;
                                             if let Some(ref mut child) = component.child {
                                                 render_queue.update(child.as_mut(), result?, ctx);
@@ -358,10 +364,6 @@ where
                                     render_queue.reload(unsafe { &mut *current }, ctx)
                                 }
                                 ComponentDiff::NewProps => {
-                                    render_queue.move_cleanups(
-                                        &current_component.component,
-                                        &next_component,
-                                    );
                                     current_component.component = next_component;
                                     render_component(
                                         current_component,
@@ -371,8 +373,8 @@ where
                                         &spawner,
                                     )?;
                                 }
+                                // Removing the old component runs its cleanups
                                 ComponentDiff::NewType => {
-                                    render_queue.queue_cleanups(&current_component.component);
                                     replace_node(
                                         unsafe { &mut *current },
                                         Element::Component(next_component),
@@ -414,16 +416,13 @@ where
                                 ctx.with_context(next_value),
                             ),
                             (current_node, next) => {
-                                if let TreeNode::Component(current_component) = current_node {
-                                    render_queue.queue_cleanups(&current_component.component);
-                                }
                                 replace_node(current_node, next, &mut render_queue, ctx)
                             }
                         }
                     }
                     RenderQueueItem::Remove { current, parent } => match current {
                         TreeNode::Component(component) => {
-                            render_queue.queue_cleanups(&component.component);
+                            render_queue.unmount(&component.effects);
                             if let Some(child) = component.child {
                                 render_queue.remove(*child, parent);
                             }
@@ -530,7 +529,7 @@ where
                     tree_component.child = Some(child);
                 }
             }
-            render_queue.queue_effects(&tree_component.component, hook.effects);
+            render_queue.queue_effects(&tree_component.effects, hook.effects);
             tree_component.refs = hook.refs;
         }
         RunOrSuspendResult::Suspend(render_future) => {
@@ -715,349 +714,519 @@ mod tests {
 
     #[tokio::test]
     async fn render_basic_component() {
-        #[derive(PartialEq)]
-        struct MockComponent;
+        // The render loop isn't Send, so it runs on a LocalSet
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                #[derive(PartialEq)]
+                struct MockComponent;
 
-        #[async_trait]
-        impl Component for MockComponent {
-            type Error = ();
-            type Node = MockNode;
-            async fn render(
-                self: Arc<Self>,
-            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                Ok(Element::Node(MockNode(0), Vec::new()))
-            }
-        }
+                #[async_trait]
+                impl Component for MockComponent {
+                    type Error = ();
+                    type Node = MockNode;
+                    async fn render(
+                        self: Arc<Self>,
+                    ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                        Ok(Element::Node(MockNode(0), Vec::new()))
+                    }
+                }
 
-        let inner_object_model = InnerMockObjectModel::new();
-        let object_model = MockObjectModel(inner_object_model.clone());
-        let handle = tokio::spawn(async move {
-            let root = Arc::new(MockNode(0));
-            let element = Element::Component(Arc::new(MockComponent));
-            super::render_loop(root, element, TokioSpawner, object_model)
-                .await
-                .unwrap();
-        });
+                let inner_object_model = InnerMockObjectModel::new();
+                let object_model = MockObjectModel(inner_object_model.clone());
+                let handle = tokio::task::spawn_local(async move {
+                    let root = Arc::new(MockNode(0));
+                    let element = Element::Component(Arc::new(MockComponent));
+                    super::render_loop(root, element, TokioSpawner, object_model)
+                        .await
+                        .unwrap();
+                });
 
-        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
-        render_cycle.await;
-        inner_object_model
-            .lock()
-            .unwrap()
-            .assert_created(MockNode(0));
+                let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+                render_cycle.await;
+                inner_object_model
+                    .lock()
+                    .unwrap()
+                    .assert_created(MockNode(0));
 
-        handle.abort();
+                handle.abort();
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn with_callback() {
-        #[derive(PartialEq)]
-        struct AutoCounter;
+        // The render loop isn't Send, so it runs on a LocalSet
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                #[derive(PartialEq)]
+                struct AutoCounter;
 
-        #[async_trait]
-        impl Component for AutoCounter {
-            type Error = ();
-            type Node = MockNode;
-            async fn render(
-                self: Arc<Self>,
-            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                let counter = use_state(|| 0i32);
-                if *counter == 0 {
-                    counter.update(|count| *count + 1);
+                #[async_trait]
+                impl Component for AutoCounter {
+                    type Error = ();
+                    type Node = MockNode;
+                    async fn render(
+                        self: Arc<Self>,
+                    ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                        let counter = use_state(|| 0i32);
+                        if *counter == 0 {
+                            counter.update(|count| *count + 1);
+                        }
+                        Ok(Element::Node(MockNode(*counter), Vec::new()))
+                    }
                 }
-                Ok(Element::Node(MockNode(*counter), Vec::new()))
-            }
-        }
 
-        let inner_object_model = InnerMockObjectModel::new();
-        let object_model = MockObjectModel(inner_object_model.clone());
-        let handle = tokio::spawn(async move {
-            let root = Arc::new(MockNode(0));
-            let element = Element::Component(Arc::new(AutoCounter));
-            super::render_loop(root, element, TokioSpawner, object_model)
-                .await
-                .unwrap();
-        });
+                let inner_object_model = InnerMockObjectModel::new();
+                let object_model = MockObjectModel(inner_object_model.clone());
+                let handle = tokio::task::spawn_local(async move {
+                    let root = Arc::new(MockNode(0));
+                    let element = Element::Component(Arc::new(AutoCounter));
+                    super::render_loop(root, element, TokioSpawner, object_model)
+                        .await
+                        .unwrap();
+                });
 
-        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
-        render_cycle.await;
-        inner_object_model
-            .lock()
-            .unwrap()
-            .assert_created(MockNode(0));
+                let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+                render_cycle.await;
+                inner_object_model
+                    .lock()
+                    .unwrap()
+                    .assert_created(MockNode(0));
 
-        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
-        render_cycle.await;
-        inner_object_model
-            .lock()
-            .unwrap()
-            .assert_updated(MockNode(1));
+                let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+                render_cycle.await;
+                inner_object_model
+                    .lock()
+                    .unwrap()
+                    .assert_updated(MockNode(1));
 
-        handle.abort();
+                handle.abort();
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn update_order() {
-        #[derive(PartialEq)]
-        struct MultiContent;
+        // The render loop isn't Send, so it runs on a LocalSet
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                #[derive(PartialEq)]
+                struct MultiContent;
 
-        #[async_trait]
-        impl Component for MultiContent {
-            type Error = ();
-            type Node = MockNode;
-            async fn render(
-                self: Arc<Self>,
-            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                let counter = use_state(|| 0i32);
+                #[async_trait]
+                impl Component for MultiContent {
+                    type Error = ();
+                    type Node = MockNode;
+                    async fn render(
+                        self: Arc<Self>,
+                    ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                        let counter = use_state(|| 0i32);
 
-                if *counter == 0 {
-                    let counter = counter.clone();
-                    tokio::spawn(async move { counter.update(|count| *count + 1) });
+                        if *counter == 0 {
+                            let counter = counter.clone();
+                            tokio::spawn(async move { counter.update(|count| *count + 1) });
+                        }
+
+                        Ok(Element::Node(
+                            MockNode(*counter),
+                            vec![
+                                Element::Node(MockNode(3), Vec::new()),
+                                Element::Node(MockNode(4), Vec::new()),
+                                Element::Node(MockNode(5), Vec::new()),
+                            ],
+                        ))
+                    }
+                }
+                let inner_object_model = InnerMockObjectModel::new();
+                let object_model = MockObjectModel(inner_object_model.clone());
+                let handle = tokio::task::spawn_local(async move {
+                    let root = Arc::new(MockNode(0));
+                    let element = Element::Component(Arc::new(MultiContent));
+                    super::render_loop(root, element, TokioSpawner, object_model)
+                        .await
+                        .unwrap();
+                });
+
+                let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+                render_cycle.await;
+                println!("start first checks");
+                {
+                    let mut lock = inner_object_model.lock().unwrap();
+                    lock.assert_created(MockNode(0));
+                    lock.assert_created(MockNode(3));
+                    lock.assert_created(MockNode(4));
+                    lock.assert_created(MockNode(5));
+                }
+                println!("first cycle done");
+                let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+                render_cycle.await;
+                {
+                    let mut lock = inner_object_model.lock().unwrap();
+                    lock.assert_updated(MockNode(1));
+                    lock.assert_updated(MockNode(3));
+                    lock.assert_updated(MockNode(4));
+                    lock.assert_updated(MockNode(5));
                 }
 
-                Ok(Element::Node(
-                    MockNode(*counter),
-                    vec![
-                        Element::Node(MockNode(3), Vec::new()),
-                        Element::Node(MockNode(4), Vec::new()),
-                        Element::Node(MockNode(5), Vec::new()),
-                    ],
-                ))
-            }
-        }
-        let inner_object_model = InnerMockObjectModel::new();
-        let object_model = MockObjectModel(inner_object_model.clone());
-        let handle = tokio::spawn(async move {
-            let root = Arc::new(MockNode(0));
-            let element = Element::Component(Arc::new(MultiContent));
-            super::render_loop(root, element, TokioSpawner, object_model)
-                .await
-                .unwrap();
-        });
-
-        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
-        render_cycle.await;
-        println!("start first checks");
-        {
-            let mut lock = inner_object_model.lock().unwrap();
-            lock.assert_created(MockNode(0));
-            lock.assert_created(MockNode(3));
-            lock.assert_created(MockNode(4));
-            lock.assert_created(MockNode(5));
-        }
-        println!("first cycle done");
-        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
-        render_cycle.await;
-        {
-            let mut lock = inner_object_model.lock().unwrap();
-            lock.assert_updated(MockNode(1));
-            lock.assert_updated(MockNode(3));
-            lock.assert_updated(MockNode(4));
-            lock.assert_updated(MockNode(5));
-        }
-
-        handle.abort();
+                handle.abort();
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn render_root_node() {
-        let inner_object_model = InnerMockObjectModel::new();
-        let object_model = MockObjectModel(inner_object_model.clone());
-        let mut handle = tokio::spawn(async move {
-            let root = Arc::new(MockNode(0));
-            let element: Element<MockNode, ()> = Element::Fragment(vec![
-                Element::Node(MockNode(1), vec![Element::Node(MockNode(2), Vec::new())]),
-                Element::Node(MockNode(3), Vec::new()),
-            ]);
-            super::render_loop(root, element, TokioSpawner, object_model)
-                .await
-                .unwrap();
-        });
+        // The render loop isn't Send, so it runs on a LocalSet
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                let inner_object_model = InnerMockObjectModel::new();
+                let object_model = MockObjectModel(inner_object_model.clone());
+                let mut handle = tokio::task::spawn_local(async move {
+                    let root = Arc::new(MockNode(0));
+                    let element: Element<MockNode, ()> = Element::Fragment(vec![
+                        Element::Node(MockNode(1), vec![Element::Node(MockNode(2), Vec::new())]),
+                        Element::Node(MockNode(3), Vec::new()),
+                    ]);
+                    super::render_loop(root, element, TokioSpawner, object_model)
+                        .await
+                        .unwrap();
+                });
 
-        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
-        tokio::select! {
-            _ = render_cycle => {}
-            result = &mut handle => panic!("render loop stopped: {:?}", result),
-        }
-        {
-            let mut lock = inner_object_model.lock().unwrap();
-            lock.assert_created(MockNode(1));
-            lock.assert_created(MockNode(2));
-            lock.assert_created(MockNode(3));
-            lock.assert_noop();
-        }
+                let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+                tokio::select! {
+                    _ = render_cycle => {}
+                    result = &mut handle => panic!("render loop stopped: {:?}", result),
+                }
+                {
+                    let mut lock = inner_object_model.lock().unwrap();
+                    lock.assert_created(MockNode(1));
+                    lock.assert_created(MockNode(2));
+                    lock.assert_created(MockNode(3));
+                    lock.assert_noop();
+                }
 
-        handle.abort();
+                handle.abort();
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn grow_children() {
-        #[derive(PartialEq)]
-        struct GrowingList;
+        // The render loop isn't Send, so it runs on a LocalSet
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                #[derive(PartialEq)]
+                struct GrowingList;
 
-        #[async_trait]
-        impl Component for GrowingList {
-            type Error = ();
-            type Node = MockNode;
-            async fn render(
-                self: Arc<Self>,
-            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                let length = use_state(|| 1i32);
+                #[async_trait]
+                impl Component for GrowingList {
+                    type Error = ();
+                    type Node = MockNode;
+                    async fn render(
+                        self: Arc<Self>,
+                    ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                        let length = use_state(|| 1i32);
 
-                if *length < 3 {
-                    let length = length.clone();
-                    tokio::spawn(async move { length.update(|length| *length + 2) });
+                        if *length < 3 {
+                            let length = length.clone();
+                            tokio::spawn(async move { length.update(|length| *length + 2) });
+                        }
+
+                        Ok(Element::Node(
+                            MockNode(0),
+                            (1..=*length)
+                                .map(|i| Element::Node(MockNode(i), Vec::new()))
+                                .collect(),
+                        ))
+                    }
                 }
 
-                Ok(Element::Node(
-                    MockNode(0),
-                    (1..=*length)
-                        .map(|i| Element::Node(MockNode(i), Vec::new()))
-                        .collect(),
-                ))
-            }
-        }
+                let inner_object_model = InnerMockObjectModel::new();
+                let object_model = MockObjectModel(inner_object_model.clone());
+                let mut handle = tokio::task::spawn_local(async move {
+                    let root = Arc::new(MockNode(0));
+                    let element = Element::Component(Arc::new(GrowingList));
+                    super::render_loop(root, element, TokioSpawner, object_model)
+                        .await
+                        .unwrap();
+                });
 
-        let inner_object_model = InnerMockObjectModel::new();
-        let object_model = MockObjectModel(inner_object_model.clone());
-        let mut handle = tokio::spawn(async move {
-            let root = Arc::new(MockNode(0));
-            let element = Element::Component(Arc::new(GrowingList));
-            super::render_loop(root, element, TokioSpawner, object_model)
-                .await
-                .unwrap();
-        });
+                let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+                render_cycle.await;
+                {
+                    let mut lock = inner_object_model.lock().unwrap();
+                    lock.assert_created(MockNode(0));
+                    lock.assert_created(MockNode(1));
+                    lock.assert_noop();
+                }
 
-        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
-        render_cycle.await;
-        {
-            let mut lock = inner_object_model.lock().unwrap();
-            lock.assert_created(MockNode(0));
-            lock.assert_created(MockNode(1));
-            lock.assert_noop();
-        }
+                // Fail instead of waiting forever if the render loop panics
+                let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+                tokio::select! {
+                    _ = render_cycle => {}
+                    result = &mut handle => panic!("render loop stopped: {:?}", result),
+                }
+                {
+                    let mut lock = inner_object_model.lock().unwrap();
+                    lock.assert_created(MockNode(2));
+                    lock.assert_created(MockNode(3));
+                    lock.assert_updated(MockNode(0));
+                    lock.assert_updated(MockNode(1));
+                    lock.assert_noop();
+                }
 
-        // Fail instead of waiting forever if the render loop panics
-        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
-        tokio::select! {
-            _ = render_cycle => {}
-            result = &mut handle => panic!("render loop stopped: {:?}", result),
-        }
-        {
-            let mut lock = inner_object_model.lock().unwrap();
-            lock.assert_created(MockNode(2));
-            lock.assert_created(MockNode(3));
-            lock.assert_updated(MockNode(0));
-            lock.assert_updated(MockNode(1));
-            lock.assert_noop();
-        }
-
-        handle.abort();
+                handle.abort();
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn async_component() {
-        let (sender, receiver) = async_channel::bounded::<()>(1);
+        // The render loop isn't Send, so it runs on a LocalSet
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                let (sender, receiver) = async_channel::bounded::<()>(1);
 
-        struct AsyncComponent(Receiver<()>);
+                struct AsyncComponent(Receiver<()>);
 
-        impl PartialEq for AsyncComponent {
-            fn eq(&self, _: &Self) -> bool {
-                true
-            }
-        }
+                impl PartialEq for AsyncComponent {
+                    fn eq(&self, _: &Self) -> bool {
+                        true
+                    }
+                }
 
-        #[async_trait]
-        impl Component for AsyncComponent {
-            type Error = RecvError;
-            type Node = MockNode;
+                #[async_trait]
+                impl Component for AsyncComponent {
+                    type Error = RecvError;
+                    type Node = MockNode;
 
-            async fn render(
-                self: Arc<Self>,
-            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                self.0.recv().await?;
-                Ok(Element::Node(MockNode(0), Vec::new()))
-            }
-        }
+                    async fn render(
+                        self: Arc<Self>,
+                    ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                        self.0.recv().await?;
+                        Ok(Element::Node(MockNode(0), Vec::new()))
+                    }
+                }
 
-        let inner_object_model = InnerMockObjectModel::new();
-        let object_model = MockObjectModel(inner_object_model.clone());
-        let handle = tokio::spawn(async move {
-            let root = Arc::new(MockNode(0));
-            let element = Element::Component(Arc::new(AsyncComponent(receiver)));
-            super::render_loop(root, element, TokioSpawner, object_model)
-                .await
-                .unwrap();
-        });
+                let inner_object_model = InnerMockObjectModel::new();
+                let object_model = MockObjectModel(inner_object_model.clone());
+                let handle = tokio::task::spawn_local(async move {
+                    let root = Arc::new(MockNode(0));
+                    let element = Element::Component(Arc::new(AsyncComponent(receiver)));
+                    super::render_loop(root, element, TokioSpawner, object_model)
+                        .await
+                        .unwrap();
+                });
 
-        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
-        render_cycle.await;
-        inner_object_model.lock().unwrap().assert_noop();
+                let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+                render_cycle.await;
+                inner_object_model.lock().unwrap().assert_noop();
 
-        sender.send(()).await.unwrap();
-        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
-        render_cycle.await;
+                sender.send(()).await.unwrap();
+                let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+                render_cycle.await;
 
-        inner_object_model
-            .lock()
-            .unwrap()
-            .assert_created(MockNode(0));
+                inner_object_model
+                    .lock()
+                    .unwrap()
+                    .assert_created(MockNode(0));
 
-        handle.abort();
+                handle.abort();
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn with_effect() {
-        let (sender, receiver) = async_channel::bounded::<()>(1);
+        // The render loop isn't Send, so it runs on a LocalSet
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                let (sender, receiver) = async_channel::bounded::<()>(1);
 
-        #[derive(Clone)]
-        struct MySender(Sender<()>);
+                #[derive(Clone)]
+                struct MySender(Sender<()>);
 
-        impl Hash for MySender {
-            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                std::ptr::hash(&self.0 as *const Sender<()>, state);
-            }
-        }
+                impl Hash for MySender {
+                    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                        std::ptr::hash(&self.0 as *const Sender<()>, state);
+                    }
+                }
 
-        impl PartialEq for MySender {
-            fn eq(&self, other: &Self) -> bool {
-                std::ptr::eq(&self.0, &other.0)
-            }
-        }
+                impl PartialEq for MySender {
+                    fn eq(&self, other: &Self) -> bool {
+                        std::ptr::eq(&self.0, &other.0)
+                    }
+                }
 
-        #[derive(PartialEq)]
-        struct EffectComponent(MySender);
+                #[derive(PartialEq)]
+                struct EffectComponent(MySender);
 
-        #[async_trait]
-        impl Component for EffectComponent {
-            type Error = ();
-            type Node = MockNode;
+                #[async_trait]
+                impl Component for EffectComponent {
+                    type Error = ();
+                    type Node = MockNode;
 
-            async fn render(
-                self: Arc<Self>,
-            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                use_effect(self.0.clone(), |sender| {
-                    sender.0.try_send(()).unwrap();
+                    async fn render(
+                        self: Arc<Self>,
+                    ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                        use_effect(self.0.clone(), |sender| {
+                            sender.0.try_send(()).unwrap();
+                        });
+                        Ok(Element::Node(MockNode(0), Vec::new()))
+                    }
+                }
+
+                let inner_object_model = InnerMockObjectModel::new();
+                let object_model = MockObjectModel(inner_object_model.clone());
+                let handle = tokio::task::spawn_local(async move {
+                    let root = Arc::new(MockNode(0));
+                    let element = Element::Component(Arc::new(EffectComponent(MySender(sender))));
+                    super::render_loop(root, element, TokioSpawner, object_model)
+                        .await
+                        .unwrap();
                 });
-                Ok(Element::Node(MockNode(0), Vec::new()))
-            }
-        }
 
-        let inner_object_model = InnerMockObjectModel::new();
-        let object_model = MockObjectModel(inner_object_model.clone());
-        let handle = tokio::spawn(async move {
-            let root = Arc::new(MockNode(0));
-            let element = Element::Component(Arc::new(EffectComponent(MySender(sender))));
-            super::render_loop(root, element, TokioSpawner, object_model)
-                .await
-                .unwrap();
-        });
+                let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+                render_cycle.await;
 
-        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
-        render_cycle.await;
+                assert_eq!(Ok(()), receiver.recv().await);
 
-        assert_eq!(Ok(()), receiver.recv().await);
+                handle.abort();
+            })
+            .await;
+    }
 
-        handle.abort();
+    #[tokio::test]
+    async fn effect_lifecycle() {
+        // The render loop isn't Send, so it runs on a LocalSet
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                type Log = Arc<Mutex<Vec<String>>>;
+
+                /// Effect argument, only the dependency is part of the hash
+                #[derive(Clone)]
+                struct Probe {
+                    dependency: i32,
+                    log: Log,
+                }
+
+                impl Hash for Probe {
+                    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                        self.dependency.hash(state);
+                    }
+                }
+
+                struct Child {
+                    dependency: i32,
+                    render: i32,
+                    log: Log,
+                }
+
+                impl PartialEq for Child {
+                    fn eq(&self, other: &Self) -> bool {
+                        self.dependency == other.dependency && self.render == other.render
+                    }
+                }
+
+                #[async_trait]
+                impl Component for Child {
+                    type Error = ();
+                    type Node = MockNode;
+
+                    async fn render(
+                        self: Arc<Self>,
+                    ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                        use_effect(
+                            Probe {
+                                dependency: self.dependency,
+                                log: self.log.clone(),
+                            },
+                            |probe| {
+                                probe
+                                    .log
+                                    .lock()
+                                    .unwrap()
+                                    .push(format!("effect {}", probe.dependency));
+                                // Cleanups don't have to be Send
+                                let not_send = std::rc::Rc::new(probe.dependency);
+                                move || {
+                                    probe
+                                        .log
+                                        .lock()
+                                        .unwrap()
+                                        .push(format!("cleanup {}", not_send));
+                                }
+                            },
+                        );
+                        Ok(Element::Node(MockNode(self.render), Vec::new()))
+                    }
+                }
+
+                struct Parent(Log);
+
+                impl PartialEq for Parent {
+                    fn eq(&self, _: &Self) -> bool {
+                        true
+                    }
+                }
+
+                #[async_trait]
+                impl Component for Parent {
+                    type Error = ();
+                    type Node = MockNode;
+
+                    async fn render(
+                        self: Arc<Self>,
+                    ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                        let step = use_state(|| 0i32);
+                        if *step < 3 {
+                            let step = step.clone();
+                            tokio::spawn(async move { step.update(|step| *step + 1) });
+                        }
+                        // Same dependency, then a new one, then the child is removed
+                        let (dependency, render) = match *step {
+                            0 => (1, 0),
+                            1 => (1, 1),
+                            2 => (2, 2),
+                            _ => return Ok(().into()),
+                        };
+                        Ok(Element::Component(Arc::new(Child {
+                            dependency,
+                            render,
+                            log: self.0.clone(),
+                        })))
+                    }
+                }
+
+                let log = Log::default();
+                let inner_object_model = InnerMockObjectModel::new();
+                let object_model = MockObjectModel(inner_object_model.clone());
+                let parent_log = log.clone();
+                let mut handle = tokio::task::spawn_local(async move {
+                    let root = Arc::new(MockNode(0));
+                    let element = Element::Component(Arc::new(Parent(parent_log)));
+                    super::render_loop(root, element, TokioSpawner, object_model)
+                        .await
+                        .unwrap();
+                });
+
+                for expected in [
+                    vec!["effect 1"],
+                    vec![],
+                    vec!["cleanup 1", "effect 2"],
+                    vec!["cleanup 2"],
+                ] {
+                    // Fail instead of waiting forever if the render loop panics
+                    let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+                    tokio::select! {
+                        _ = render_cycle => {}
+                        result = &mut handle => panic!("render loop stopped: {:?}", result),
+                    }
+                    let entries: Vec<String> = log.lock().unwrap().drain(..).collect();
+                    assert_eq!(entries, expected);
+                }
+
+                handle.abort();
+            })
+            .await;
     }
 }
