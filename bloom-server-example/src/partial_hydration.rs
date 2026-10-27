@@ -26,7 +26,7 @@ impl Component for HydrationPage {
                     </button>
                 </div>
                 <script type="module">
-                    "import init, { hydrate } from \"/bundle.js\"; await init(); await hydrate();"
+                    "import init, { hydrate_partial } from \"/bundle.js\"; await init(); await hydrate_partial();"
                 </script>
             </div>
         ))
@@ -56,6 +56,6 @@ pub mod server {
 }
 
 #[wasm_bindgen::prelude::wasm_bindgen]
-pub fn hydrate() {
+pub fn hydrate_partial() {
     bloom_client::hydrate(get_element_by_id("root").unwrap(), rsx!(<HydrationPage />));
 }

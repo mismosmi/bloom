@@ -1,6 +1,5 @@
 //! A way to have some context within async functions. This can be used to implement React-like hooks.
 //!
-#![feature(box_into_inner)]
 
 use core::future::Future;
 use std::{any::Any, cell::RefCell, pin::Pin, sync::Mutex, task::Poll};
@@ -58,7 +57,7 @@ where
         let projection = self.project();
         let future: Pin<&mut F> = projection.future;
         let poll = future.poll(cx);
-        let ctx: C = Box::into_inner(CTX.replace(Box::new(())).downcast().unwrap());
+        let ctx: C = *CTX.replace(Box::new(())).downcast().unwrap();
         match poll {
             Poll::Ready(value) => return Poll::Ready((value, ctx)),
             Poll::Pending => {

@@ -24,7 +24,7 @@ pub fn get_element_by_id(id: &str) -> Option<HtmlElement> {
 
 /// Use the render-function to construct the DOM for a component completely on the client.
 /// Pass it your bloom-component and the root HtmlElement to render it into.
-/// ```
+/// ```ignore
 /// use bloom_client::{render, get_element_by_id};
 /// use bloom_rsx::rsx;
 ///

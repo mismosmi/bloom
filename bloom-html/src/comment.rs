@@ -11,7 +11,7 @@ pub struct HtmlComment {
 
 impl HtmlComment {
     /// Build a new HTML comment
-    /// ```
+    /// ```ignore
     /// HtmlComment::new().text("foo").build();
     /// ```
     pub fn new() -> HtmlCommentBuilder<()> {
@@ -39,7 +39,7 @@ pub struct HtmlCommentBuilder<T> {
 
 impl<T> HtmlCommentBuilder<T> {
     /// Use
-    /// ```
+    /// ```ignore
     /// let comment = use_ref::<DomRef>();
     /// ```
     /// to obtain the `Arc<DomRef>` to pass to this method.

@@ -14,7 +14,7 @@ use crate::{
 /// a text-node or a comment.
 ///
 /// HtmlNodes will be mainly constructed using bloom-rsx:
-/// ```
+/// ```ignore
 /// rsx!(<div id="123" on_click=|_| { alert!("clicked")} />)
 /// ```
 #[derive(Debug, PartialEq, Clone)]

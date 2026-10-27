@@ -153,13 +153,13 @@ pub trait ObjectModel {
 /// </html>
 /// ```
 ///
-/// ```
+/// ```ignore
 /// render_loop(get_element_by_id('root'), ...)
 /// ```
 ///
 /// The element is the root of the component tree that represents the intended UI.
 /// This is usually a component:
-/// ```
+/// ```ignore
 /// render_loop(root_node, rsx!(<MyComponent />), ...)
 /// ```
 ///

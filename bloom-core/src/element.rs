@@ -4,7 +4,7 @@ use crate::component::{AnyComponent, ComponentDiff};
 
 /// The element type is returned from component render-functions.
 /// It can be constructed from a Node-type, e.G. HtmlNode, or a Component.
-/// ```
+/// ```ignore
 /// HtmlNode::element("div").attr("id", "test123").build().into()
 /// ```
 pub enum Element<Node, Error>

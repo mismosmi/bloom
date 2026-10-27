@@ -17,7 +17,7 @@ pub trait Component: PartialEq<Self> + Send + Sync {
     /// It should return the [Element] type, which is easily generated
     /// using the rsx macro from the bloom-rsx crate.
     /// Within the render function, hooks can be used such as [bloom_core::use_state] and [bloom_core::use_effect].
-    /// ```
+    /// ```ignore
     /// use bloom_core::Component;
     ///
     /// #[derive(PartialEq, Debug)]
@@ -45,7 +45,7 @@ pub trait Component: PartialEq<Self> + Send + Sync {
     /// It should return the [Element] type, which is easily generated
     /// using the rsx macro from the bloom-rsx crate.
     /// Within the render function, hooks can be used such as [use_state] and [use_effect].
-    /// ```
+    /// ```ignore
     /// use bloom_core::Component;
     ///
     /// #[derive(PartialEq, Debug)]

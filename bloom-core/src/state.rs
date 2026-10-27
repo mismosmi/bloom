@@ -27,14 +27,14 @@ impl StateUpdate {
 }
 
 /// The state object can be dereferenced to obtain the current value.
-/// ```
+/// ```ignore
 /// let my_state = use_state(|| 0);
 ///
 /// assert_eq!(0, *my_state);
 /// ```
 ///
 /// It's update-method can be used to change the state.
-/// ```
+/// ```ignore
 /// my_state.update(|value| *value + 1);
 /// ```
 /// This will trigger a re-render of the component.

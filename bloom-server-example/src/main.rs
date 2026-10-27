@@ -15,7 +15,10 @@ async fn main() {
     let app = Router::new()
         .route("/", get(home))
         .route("/hydrate", get(hydration::server::hydration_page))
-        .route("/hydrate-partial", get(partial_hydration::hydrate()))
+        .route(
+            "/hydrate-partial",
+            get(partial_hydration::server::hydration_page),
+        )
         .route("/bundle.js", get(bloom_server_example::bundle::bundle_js))
         .route(
             "/bloom_server_example_bg.wasm",

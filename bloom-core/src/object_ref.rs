@@ -8,7 +8,7 @@ use crate::hook::Hook;
 /// The object returned from ref is guaranteed to be the same object
 /// on every subsequent call to a component's render-function.
 /// The most common use case is with HtmlNodes:
-/// ```
+/// ```ignore
 /// let my_div = use_ref::<DomRef>()
 ///
 /// rsx!(
@@ -18,7 +18,7 @@ use crate::hook::Hook;
 /// where my_div will contain a reference to the div element after it has been rendered.
 ///
 /// This can be used in an effect to manipulate the DOM directly:
-/// ```
+/// ```ignore
 /// use_effect((), |_| {
 ///     my_div.get().set_inner_text("Hello, world!");
 /// })

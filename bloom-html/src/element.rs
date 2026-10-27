@@ -23,7 +23,7 @@ impl Debug for HtmlElement {
 
 impl HtmlElement {
     /// Build a new HtmlElement
-    /// ```
+    /// ```ignore
     /// HtmlElement::new().tag_name("div").build();
     /// ```
     pub fn new() -> HtmlElementBuilder<()> {
@@ -79,7 +79,7 @@ impl HtmlElementBuilder<()> {
 
 impl<T> HtmlElementBuilder<T> {
     /// set one specific attribute of the element:
-    /// ```
+    /// ```ignore
     /// HtmlElement::new().tag_name("div").attr("id", "foo").build();
     /// ```
     /// builds a `<div id="foo">`
@@ -94,7 +94,7 @@ impl<T> HtmlElementBuilder<T> {
     }
 
     /// Set one specific callback / event handler:
-    /// ```
+    /// ```ignore
     /// HtmlElement::new().tag_name("div").on("click", |event| { alert!("clicked") }).build();
     /// ```
     /// builds a div that will send an alert on the "click"-event

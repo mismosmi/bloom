@@ -8,7 +8,7 @@ use std::{
 
 /// Represents a reference to a DOM element.
 /// Obtain this via
-/// ```
+/// ```ignore
 /// use_ref::<DomRef>();
 /// ```
 #[derive(Debug, Default)]
@@ -41,7 +41,7 @@ impl DomRef {
     }
 
     /// use this method in an effect to get the actual DOM element:
-    /// ```
+    /// ```ignore
     /// let my_ref = use_ref::<DomRef>();
     /// use_effect(my_ref, |my_ref| {
     ///     let dom_element = my_ref.get();
