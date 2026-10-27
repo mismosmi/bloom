@@ -23,6 +23,7 @@ where
     Provider(Arc<dyn Any + Send + Sync>, Vec<Element<Node, Error>>),
     /// Identifies the element among its siblings, see [keyed].
     Keyed(Key, Box<Element<Node, Error>>),
+    Suspense(Box<Element<Node, Error>>, Vec<Element<Node, Error>>),
 }
 
 impl<N, E> Element<N, E>
@@ -137,6 +138,7 @@ where
                 Arc::ptr_eq(av, bv) && ac == bc
             }
             (Element::Keyed(ak, a), Element::Keyed(bk, b)) => ak == bk && a == b,
+            (Element::Suspense(af, ac), Element::Suspense(bf, bc)) => af == bf && ac == bc,
             _ => false,
         }
     }
@@ -155,6 +157,9 @@ where
                 Element::Provider(value.clone(), children.clone())
             }
             Element::Keyed(key, element) => Element::Keyed(*key, element.clone()),
+            Element::Suspense(fallback, children) => {
+                Element::Suspense(fallback.clone(), children.clone())
+            }
         }
     }
 }

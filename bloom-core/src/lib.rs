@@ -74,6 +74,7 @@ pub use render_loop::{render_loop, ObjectModel};
 pub use render_stream::{render_stream, NodeStream};
 pub use result::Result;
 pub use state::use_state;
+pub use suspense::Suspense;
 
 #[doc(hidden)]
 pub mod __private {
