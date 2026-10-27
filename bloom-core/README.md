@@ -11,7 +11,7 @@ It provides APIs similar to those of react:
 * `use_effect`
 * `use_context` (WIP)
 * `use_layout_effect` (WIP)
-* `Suspense` (WIP)
+* `Suspense`
 * `ErrorBoundary` (WIP)
 
 that can be used in the `render`-method of the `Component`-trait for features such as state, side-effects or raw references to the underlying renderer.
@@ -61,6 +61,21 @@ async fn render() -> Result<Element<Self::Node, Self::Error>, Self::Error> {
     )
 }
 ```
+
+## Suspense
+Wrap async components in a `Suspense` boundary to show a fallback until all of them have rendered:
+```rust
+rsx!(
+    <Suspense fallback="Loading...">
+        <Profile />
+        <Posts />
+    </Suspense>
+)
+```
+The children are shown together once all of them are done, and their effects only run at that point.
+The fallback is only shown on the first render: when a child suspends again later on, its previous output stays on screen until the new one is ready.
+
+Server-side rendering ignores suspense boundaries for now and always waits for the children.
 
 ## HTML
 For everything related to rendering HTML with bloom see the [bloom-html](https://crates.io/crates/bloom-html) crate.

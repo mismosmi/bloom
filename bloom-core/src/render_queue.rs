@@ -11,6 +11,9 @@ pub(crate) struct RenderContext<N> {
     pub(crate) parent: Arc<N>,
     pub(crate) sibling: Option<Arc<N>>,
     pub(crate) context: ContextMap,
+    /// Detached nodes are kept in the tree but not passed to the object model,
+    /// e.G. the children of a suspense boundary that is still showing its fallback.
+    pub(crate) detached: bool,
 }
 
 impl<N> Clone for RenderContext<N> {
@@ -19,6 +22,7 @@ impl<N> Clone for RenderContext<N> {
             parent: self.parent.clone(),
             sibling: self.sibling.clone(),
             context: self.context.clone(),
+            detached: self.detached,
         }
     }
 }
@@ -29,6 +33,7 @@ impl<N> RenderContext<N> {
             parent,
             sibling,
             context,
+            detached: false,
         }
     }
 
@@ -37,6 +42,7 @@ impl<N> RenderContext<N> {
             parent,
             sibling: None,
             context: self.context.clone(),
+            detached: self.detached,
         }
     }
 
@@ -45,6 +51,7 @@ impl<N> RenderContext<N> {
             parent,
             sibling,
             context: self.context.clone(),
+            detached: self.detached,
         }
     }
 
@@ -53,6 +60,7 @@ impl<N> RenderContext<N> {
             parent: self.parent.clone(),
             sibling,
             context: self.context.clone(),
+            detached: self.detached,
         }
     }
 
@@ -63,6 +71,23 @@ impl<N> RenderContext<N> {
             parent: self.parent.clone(),
             sibling: self.sibling.clone(),
             context: Arc::new(new_context),
+            detached: self.detached,
+        }
+    }
+
+    pub(crate) fn detach(&self) -> Self {
+        Self {
+            detached: true,
+            ..self.clone()
+        }
+    }
+
+    /// The parent to remove nodes from, none if the nodes were never passed to the object model.
+    pub(crate) fn attached_parent(&self) -> Option<Arc<N>> {
+        if self.detached {
+            None
+        } else {
+            Some(self.parent.clone())
         }
     }
 
@@ -77,6 +102,7 @@ impl<N> RenderContext<N> {
             parent: self.parent.clone(),
             sibling,
             context: Arc::new(new_context),
+            detached: self.detached,
         }
     }
 }
@@ -100,7 +126,12 @@ where
     },
     Remove {
         current: TN,
-        parent: Arc<N>,
+        parent: Option<Arc<N>>,
+    },
+    /// Runs after everything below a suspense boundary has been rendered
+    Settle {
+        current: *mut TN,
+        ctx: RenderContext<N>,
     },
 }
 
@@ -146,8 +177,15 @@ where
         })
     }
 
-    pub(crate) fn remove(&mut self, current: TN, parent: Arc<N>) {
+    pub(crate) fn remove(&mut self, current: TN, parent: Option<Arc<N>>) {
         self.queue.push(RenderQueueItem::Remove { current, parent })
+    }
+
+    pub(crate) fn settle(&mut self, current: &mut TN, ctx: RenderContext<N>) {
+        self.queue.push(RenderQueueItem::Settle {
+            current: current as *mut TN,
+            ctx,
+        })
     }
 
     pub(crate) fn next(&mut self) -> Option<RenderQueueItem<N, E, TN>> {

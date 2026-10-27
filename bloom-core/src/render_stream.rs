@@ -105,6 +105,10 @@ where
             spawner,
             ctx.with_context(provider),
         ))),
+        // Server-side rendering waits for all children anyway, so the fallback is never needed
+        Element::Suspense(_, children) => {
+            Box::pin(future::ready(render_children(children, spawner, ctx)))
+        }
     }
 }
 

@@ -18,6 +18,7 @@ where
     Node(Node, Vec<Element<Node, Error>>),
     Fragment(Vec<Element<Node, Error>>),
     Provider(Arc<dyn Any + Send + Sync>, Vec<Element<Node, Error>>),
+    Suspense(Box<Element<Node, Error>>, Vec<Element<Node, Error>>),
 }
 
 impl<N, E> Element<N, E>
@@ -87,6 +88,7 @@ where
             (Element::Provider(av, ac), Element::Provider(bv, bc)) => {
                 Arc::ptr_eq(av, bv) && ac == bc
             }
+            (Element::Suspense(af, ac), Element::Suspense(bf, bc)) => af == bf && ac == bc,
             _ => false,
         }
     }
@@ -103,6 +105,9 @@ where
             Element::Node(node, children) => Element::Node(node.clone(), children.clone()),
             Element::Provider(value, children) => {
                 Element::Provider(value.clone(), children.clone())
+            }
+            Element::Suspense(fallback, children) => {
+                Element::Suspense(fallback.clone(), children.clone())
             }
         }
     }

@@ -10,6 +10,7 @@ use futures_util::{
 use crate::{
     component::{AnyComponent, ComponentDiff},
     context::ContextMap,
+    effect::Effect,
     hook::Hook,
     render_queue::{RenderContext, RenderQueue, RenderQueueItem},
     state::StateUpdate,
@@ -30,6 +31,8 @@ where
     render_result: Option<RenderFuture<N, E>>,
     child: Option<Box<TreeNode<N, E>>>,
     refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
+    /// Effects of a detached component only run once its nodes are shown
+    deferred_effects: Option<Vec<(u64, Effect)>>,
 }
 
 impl<N, E> TreeComponent<N, E>
@@ -46,6 +49,58 @@ where
             child: None,
             render_result: None,
             refs: HashMap::new(),
+            deferred_effects: None,
+        }
+    }
+
+    fn queue_effects(
+        &mut self,
+        effects: Vec<(u64, Effect)>,
+        render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
+        ctx: &RenderContext<N>,
+    ) {
+        if ctx.detached {
+            self.deferred_effects = Some(effects);
+        } else {
+            render_queue.queue_effects(&self.component, effects);
+        }
+    }
+}
+
+pub(crate) enum SuspenseState<N, E>
+where
+    N: From<String>,
+{
+    /// The boundary was just created and does not know yet whether its children suspend
+    Unsettled(Element<N, E>),
+    /// Some children are still rendering, the fallback is shown in their place
+    Fallback(Box<TreeNode<N, E>>),
+    /// All children have rendered once and are shown
+    Revealed,
+}
+
+pub(crate) struct TreeSuspense<N, E>
+where
+    N: From<String>,
+{
+    state: SuspenseState<N, E>,
+    children: Vec<TreeNode<N, E>>,
+}
+
+impl<N, E> TreeSuspense<N, E>
+where
+    N: From<String>,
+{
+    fn is_revealed(&self) -> bool {
+        matches!(self.state, SuspenseState::Revealed)
+    }
+
+    /// Children are only passed to the object model once the boundary is revealed
+    fn children_ctx(&self, ctx: &RenderContext<N>) -> RenderContext<N> {
+        if self.is_revealed() {
+            ctx.clone()
+        } else {
+            ctx.detach()
         }
     }
 }
@@ -58,6 +113,7 @@ where
     Node(Arc<N>, Vec<TreeNode<N, E>>),
     Fragment(Vec<TreeNode<N, E>>),
     Provider(Arc<dyn Any + Send + Sync>, Vec<TreeNode<N, E>>),
+    Suspense(TreeSuspense<N, E>),
 }
 
 impl<N, E> TreeNode<N, E>
@@ -83,6 +139,10 @@ where
             Element::Provider(value, children) => {
                 TreeNode::Provider(value, children.into_iter().map(TreeNode::from).collect())
             }
+            Element::Suspense(fallback, children) => TreeNode::Suspense(TreeSuspense {
+                state: SuspenseState::Unsettled(*fallback),
+                children: children.into_iter().map(TreeNode::from).collect(),
+            }),
         }
     }
 
@@ -109,6 +169,84 @@ where
                 }
                 None
             }
+            Self::Suspense(suspense) => match &suspense.state {
+                SuspenseState::Unsettled(_) => None,
+                SuspenseState::Fallback(fallback) => fallback.get_first_node(),
+                SuspenseState::Revealed => {
+                    for child in &suspense.children {
+                        if let Some(node) = child.get_first_node() {
+                            return Some(node);
+                        }
+                    }
+                    None
+                }
+            },
+        }
+    }
+
+    /// Whether a suspense boundary above this node has to keep waiting for it.
+    /// Nested boundaries handle their own children, only their fallback counts.
+    fn is_pending(&self) -> bool {
+        match self {
+            Self::Component(component) => {
+                component.render_result.is_some()
+                    || component
+                        .child
+                        .as_ref()
+                        .is_some_and(|child| child.is_pending())
+            }
+            Self::Node(_, children) | Self::Fragment(children) | Self::Provider(_, children) => {
+                children.iter().any(TreeNode::is_pending)
+            }
+            Self::Suspense(suspense) => match &suspense.state {
+                SuspenseState::Fallback(fallback) => fallback.is_pending(),
+                SuspenseState::Unsettled(_) | SuspenseState::Revealed => false,
+            },
+        }
+    }
+
+    /// Passes a detached subtree to the object model, inserting it before the sibling.
+    /// Effects that were held back while it was detached are queued.
+    fn mount<P>(
+        &mut self,
+        parent: &Arc<N>,
+        sibling: &Option<Arc<N>>,
+        object_model: &mut P,
+        render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
+    ) where
+        P: ObjectModel<Node = N>,
+    {
+        match self {
+            Self::Component(component) => {
+                if let Some(effects) = component.deferred_effects.take() {
+                    render_queue.queue_effects(&component.component, effects);
+                }
+                if let Some(child) = component.child.as_mut() {
+                    child.mount(parent, sibling, object_model, render_queue);
+                }
+            }
+            Self::Node(node, children) => {
+                object_model.create(node, parent, sibling);
+                for child in children {
+                    child.mount(node, &None, object_model, render_queue);
+                }
+            }
+            Self::Fragment(children) | Self::Provider(_, children) => {
+                for child in children {
+                    child.mount(parent, sibling, object_model, render_queue);
+                }
+            }
+            Self::Suspense(suspense) => match &mut suspense.state {
+                SuspenseState::Unsettled(_) => {}
+                SuspenseState::Fallback(fallback) => {
+                    fallback.mount(parent, sibling, object_model, render_queue)
+                }
+                SuspenseState::Revealed => {
+                    for child in &mut suspense.children {
+                        child.mount(parent, sibling, object_model, render_queue);
+                    }
+                }
+            },
         }
     }
 }
@@ -255,7 +393,9 @@ where
                             &spawner,
                         )?,
                         TreeNode::Node(node, children) => {
-                            object_model.create(node, &ctx.parent, &ctx.sibling);
+                            if !ctx.detached {
+                                object_model.create(node, &ctx.parent, &ctx.sibling);
+                            }
                             for child in children.iter_mut().rev() {
                                 render_queue.create(child, ctx.with_parent(node.clone()));
                             }
@@ -272,6 +412,14 @@ where
                                 render_queue.create(child, ctx.with_context(value.clone()));
                             }
                         }
+                        // The fallback is only created once it is clear that the children suspend
+                        TreeNode::Suspense(suspense) => {
+                            render_queue.settle(unsafe { &mut *current }, ctx.clone());
+                            let children_ctx = ctx.detach();
+                            for child in suspense.children.iter_mut().rev() {
+                                render_queue.create(child, children_ctx.clone());
+                            }
+                        }
                     },
                     RenderQueueItem::Reload { current, ctx } => match unsafe { &mut *current } {
                         TreeNode::Component(component) => {
@@ -285,8 +433,11 @@ where
                                             }
                                         }
                                         RunOrSuspendResult::Done((result, hook)) => {
-                                            render_queue
-                                                .queue_effects(&component.component, hook.effects);
+                                            component.queue_effects(
+                                                hook.effects,
+                                                &mut render_queue,
+                                                &ctx,
+                                            );
                                             component.refs = hook.refs;
                                             if let Some(ref mut child) = component.child {
                                                 render_queue.update(child.as_mut(), result?, ctx);
@@ -345,6 +496,18 @@ where
                                 sibling = child.get_first_node();
                             }
                         }
+                        TreeNode::Suspense(suspense) => {
+                            render_queue.settle(unsafe { &mut *current }, ctx.clone());
+                            let children_ctx = suspense.children_ctx(&ctx);
+                            if let SuspenseState::Fallback(fallback) = &mut suspense.state {
+                                render_queue.reload(fallback.as_mut(), ctx);
+                            }
+                            let mut sibling = children_ctx.sibling.clone();
+                            for child in suspense.children.iter_mut().rev() {
+                                render_queue.reload(child, children_ctx.with_sibling(sibling));
+                                sibling = child.get_first_node();
+                            }
+                        }
                     },
                     RenderQueueItem::Update { current, next, ctx } => {
                         let current_node = unsafe { &mut *current };
@@ -386,7 +549,9 @@ where
                                 Element::Node(next, next_children),
                             ) => {
                                 let next = Arc::new(next);
-                                object_model.update(current, &next);
+                                if !ctx.detached {
+                                    object_model.update(current, &next);
+                                }
                                 *current = next.clone();
                                 update_children(
                                     current_children,
@@ -413,11 +578,62 @@ where
                                 &mut render_queue,
                                 ctx.with_context(next_value),
                             ),
+                            (
+                                TreeNode::Suspense(suspense),
+                                Element::Suspense(next_fallback, next_children),
+                            ) => {
+                                render_queue.settle(unsafe { &mut *current }, ctx.clone());
+                                let children_ctx = suspense.children_ctx(&ctx);
+                                // Once revealed, the fallback is never shown again
+                                if let SuspenseState::Fallback(fallback) = &mut suspense.state {
+                                    render_queue.update(fallback.as_mut(), *next_fallback, ctx);
+                                }
+                                update_children(
+                                    &mut suspense.children,
+                                    next_children,
+                                    &mut render_queue,
+                                    children_ctx,
+                                );
+                            }
                             (current_node, next) => {
                                 if let TreeNode::Component(current_component) = current_node {
                                     render_queue.queue_cleanups(&current_component.component);
                                 }
                                 replace_node(current_node, next, &mut render_queue, ctx)
+                            }
+                        }
+                    }
+                    RenderQueueItem::Settle { current, ctx } => {
+                        let TreeNode::Suspense(suspense) = (unsafe { &mut *current }) else {
+                            unreachable!("Only suspense boundaries are settled")
+                        };
+                        let pending = !suspense.is_revealed()
+                            && suspense.children.iter().any(TreeNode::is_pending);
+                        match std::mem::replace(&mut suspense.state, SuspenseState::Revealed) {
+                            SuspenseState::Revealed => {}
+                            SuspenseState::Unsettled(fallback) if pending => {
+                                let mut fallback = Box::new(TreeNode::from(fallback));
+                                render_queue.create(fallback.as_mut(), ctx);
+                                suspense.state = SuspenseState::Fallback(fallback);
+                            }
+                            SuspenseState::Fallback(fallback) if pending => {
+                                suspense.state = SuspenseState::Fallback(fallback);
+                            }
+                            previous => {
+                                // A boundary inside a detached subtree is mounted along with it
+                                if !ctx.detached {
+                                    for child in &mut suspense.children {
+                                        child.mount(
+                                            &ctx.parent,
+                                            &ctx.sibling,
+                                            &mut object_model,
+                                            &mut render_queue,
+                                        );
+                                    }
+                                }
+                                if let SuspenseState::Fallback(fallback) = previous {
+                                    render_queue.remove(*fallback, ctx.attached_parent());
+                                }
                             }
                         }
                     }
@@ -429,19 +645,30 @@ where
                             }
                         }
                         TreeNode::Node(node, children) => {
-                            object_model.remove(&node, &parent);
+                            if let Some(parent) = &parent {
+                                object_model.remove(&node, parent);
+                            }
                             for child in children {
-                                render_queue.remove(child, Arc::clone(&node));
+                                render_queue
+                                    .remove(child, parent.as_ref().map(|_| Arc::clone(&node)));
                             }
                         }
-                        TreeNode::Fragment(children) => {
+                        TreeNode::Fragment(children) | TreeNode::Provider(_, children) => {
                             for child in children {
-                                render_queue.remove(child, Arc::clone(&parent));
+                                render_queue.remove(child, parent.clone());
                             }
                         }
-                        TreeNode::Provider(_, children) => {
-                            for child in children {
-                                render_queue.remove(child, Arc::clone(&parent));
+                        TreeNode::Suspense(suspense) => {
+                            let children_parent = if suspense.is_revealed() {
+                                parent.clone()
+                            } else {
+                                None
+                            };
+                            if let SuspenseState::Fallback(fallback) = suspense.state {
+                                render_queue.remove(*fallback, parent);
+                            }
+                            for child in suspense.children {
+                                render_queue.remove(child, children_parent.clone());
                             }
                         }
                     },
@@ -468,7 +695,7 @@ fn update_children<N, E>(
 
     let kept = elements.len().min(old_len);
     for tree_node in tree_nodes.drain(kept..).rev() {
-        render_queue.remove(tree_node, ctx.parent.clone());
+        render_queue.remove(tree_node, ctx.attached_parent());
     }
 
     tree_nodes.shrink_to_fit();
@@ -530,7 +757,7 @@ where
                     tree_component.child = Some(child);
                 }
             }
-            render_queue.queue_effects(&tree_component.component, hook.effects);
+            tree_component.queue_effects(hook.effects, render_queue, &ctx);
             tree_component.refs = hook.refs;
         }
         RunOrSuspendResult::Suspend(render_future) => {
@@ -559,7 +786,7 @@ fn replace_node<N, E>(
 {
     let mut old_node = TreeNode::from(element);
     std::mem::swap(node, &mut old_node);
-    render_queue.remove(old_node, ctx.parent.clone());
+    render_queue.remove(old_node, ctx.attached_parent());
     render_queue.create(node, ctx);
 }
 
@@ -568,14 +795,17 @@ mod tests {
     use std::{
         collections::VecDeque,
         hash::Hash,
-        sync::{Arc, Mutex},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Mutex,
+        },
     };
 
     use async_channel::{Receiver, RecvError, Sender};
     use async_trait::async_trait;
     use futures_util::{task::Spawn, Future, FutureExt};
 
-    use crate::{use_effect, use_state, Component, Element, ObjectModel};
+    use crate::{use_effect, use_state, Component, Element, ObjectModel, Suspense};
 
     struct InnerMockObjectModel {
         created: VecDeque<Arc<MockNode>>,
@@ -1057,6 +1287,271 @@ mod tests {
         render_cycle.await;
 
         assert_eq!(Ok(()), receiver.recv().await);
+
+        handle.abort();
+    }
+
+    /// Renders its node once the receiver gets a message
+    struct Delayed(Receiver<()>, i32);
+
+    impl PartialEq for Delayed {
+        fn eq(&self, _: &Self) -> bool {
+            true
+        }
+    }
+
+    #[async_trait]
+    impl Component for Delayed {
+        type Error = RecvError;
+        type Node = MockNode;
+
+        async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+            self.0.recv().await?;
+            Ok(Element::Node(MockNode(self.1), Vec::new()))
+        }
+    }
+
+    fn delayed(receiver: &Receiver<()>, value: i32) -> Element<MockNode, RecvError> {
+        Element::Component(Arc::new(Delayed(receiver.clone(), value)))
+    }
+
+    fn node(value: i32) -> Element<MockNode, RecvError> {
+        Element::Node(MockNode(value), Vec::new())
+    }
+
+    fn start_render_loop(
+        element: Element<MockNode, RecvError>,
+    ) -> (
+        Arc<Mutex<InnerMockObjectModel>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let inner_object_model = InnerMockObjectModel::new();
+        let object_model = MockObjectModel(inner_object_model.clone());
+        let handle = tokio::spawn(async move {
+            let root = Arc::new(MockNode(0));
+            super::render_loop(root, element, TokioSpawner, object_model)
+                .await
+                .unwrap();
+        });
+        (inner_object_model, handle)
+    }
+
+    async fn next_render_cycle(
+        inner_object_model: &Arc<Mutex<InnerMockObjectModel>>,
+        handle: &mut tokio::task::JoinHandle<()>,
+    ) {
+        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+        tokio::select! {
+            _ = render_cycle => {}
+            result = handle => panic!("render loop stopped: {:?}", result),
+        }
+    }
+
+    #[tokio::test]
+    async fn suspense_shows_fallback() {
+        let (sender, receiver) = async_channel::bounded::<()>(1);
+
+        let element = Element::Fragment(vec![
+            Suspense::builder()
+                .fallback(node(9))
+                .children(vec![node(1), delayed(&receiver, 2), node(3)])
+                .build()
+                .into(),
+            node(4),
+        ]);
+        let (inner_object_model, mut handle) = start_render_loop(element);
+
+        next_render_cycle(&inner_object_model, &mut handle).await;
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_created(MockNode(9));
+            lock.assert_created(MockNode(4));
+            lock.assert_noop();
+        }
+
+        sender.send(()).await.unwrap();
+        next_render_cycle(&inner_object_model, &mut handle).await;
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_created(MockNode(1));
+            lock.assert_created(MockNode(2));
+            lock.assert_created(MockNode(3));
+            lock.assert_removed(MockNode(9));
+            lock.assert_noop();
+        }
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn suspense_without_suspending_children() {
+        let element = Suspense::builder()
+            .fallback(node(9))
+            .children(vec![node(1), Element::Node(MockNode(2), vec![node(3)])])
+            .build()
+            .into();
+        let (inner_object_model, mut handle) = start_render_loop(element);
+
+        next_render_cycle(&inner_object_model, &mut handle).await;
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_created(MockNode(1));
+            lock.assert_created(MockNode(2));
+            lock.assert_created(MockNode(3));
+            lock.assert_noop();
+        }
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn nested_suspense() {
+        let (sender, receiver) = async_channel::bounded::<()>(1);
+
+        let inner = Suspense::builder()
+            .fallback(node(8))
+            .children(vec![delayed(&receiver, 2)])
+            .build()
+            .into();
+        let element = Suspense::builder()
+            .fallback(node(9))
+            .children(vec![node(1), inner, node(3)])
+            .build()
+            .into();
+        let (inner_object_model, mut handle) = start_render_loop(element);
+
+        // The inner boundary catches the suspending component, so the outer one is shown
+        next_render_cycle(&inner_object_model, &mut handle).await;
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_created(MockNode(1));
+            lock.assert_created(MockNode(8));
+            lock.assert_created(MockNode(3));
+            lock.assert_noop();
+        }
+
+        sender.send(()).await.unwrap();
+        next_render_cycle(&inner_object_model, &mut handle).await;
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_created(MockNode(2));
+            lock.assert_removed(MockNode(8));
+            lock.assert_noop();
+        }
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn suspense_defers_effects() {
+        static EFFECT_RUNS: AtomicUsize = AtomicUsize::new(0);
+        let (sender, receiver) = async_channel::bounded::<()>(1);
+
+        #[derive(PartialEq)]
+        struct WithEffect;
+
+        #[async_trait]
+        impl Component for WithEffect {
+            type Error = RecvError;
+            type Node = MockNode;
+
+            async fn render(
+                self: Arc<Self>,
+            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                use_effect((), |_| {
+                    EFFECT_RUNS.fetch_add(1, Ordering::SeqCst);
+                });
+                Ok(Element::Node(MockNode(1), Vec::new()))
+            }
+        }
+
+        let element = Suspense::builder()
+            .fallback(node(9))
+            .children(vec![
+                Element::Component(Arc::new(WithEffect)),
+                delayed(&receiver, 2),
+            ])
+            .build()
+            .into();
+        let (inner_object_model, mut handle) = start_render_loop(element);
+
+        next_render_cycle(&inner_object_model, &mut handle).await;
+        assert_eq!(
+            EFFECT_RUNS.load(Ordering::SeqCst),
+            0,
+            "Effect ran while the boundary showed its fallback"
+        );
+
+        sender.send(()).await.unwrap();
+        next_render_cycle(&inner_object_model, &mut handle).await;
+        assert_eq!(EFFECT_RUNS.load(Ordering::SeqCst), 1);
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn update_and_remove_suspended_boundary() {
+        let (_sender, receiver) = async_channel::bounded::<()>(1);
+
+        struct Toggle(Receiver<()>);
+
+        impl PartialEq for Toggle {
+            fn eq(&self, _: &Self) -> bool {
+                true
+            }
+        }
+
+        #[async_trait]
+        impl Component for Toggle {
+            type Error = RecvError;
+            type Node = MockNode;
+
+            async fn render(
+                self: Arc<Self>,
+            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                let step = use_state(|| 0i32);
+
+                if *step < 2 {
+                    let step = step.clone();
+                    tokio::spawn(async move { step.update(|step| *step + 1) });
+                }
+
+                if *step == 2 {
+                    return Ok(node(5));
+                }
+
+                Ok(Suspense::builder()
+                    .fallback(node(9 + *step))
+                    .children(vec![delayed(&self.0, 2)])
+                    .build()
+                    .into())
+            }
+        }
+
+        let (inner_object_model, mut handle) =
+            start_render_loop(Element::Component(Arc::new(Toggle(receiver))));
+
+        next_render_cycle(&inner_object_model, &mut handle).await;
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_created(MockNode(9));
+            lock.assert_noop();
+        }
+
+        next_render_cycle(&inner_object_model, &mut handle).await;
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_updated(MockNode(10));
+            lock.assert_noop();
+        }
+
+        next_render_cycle(&inner_object_model, &mut handle).await;
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_created(MockNode(5));
+            lock.assert_removed(MockNode(10));
+            lock.assert_noop();
+        }
 
         handle.abort();
     }
