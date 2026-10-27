@@ -37,6 +37,11 @@ impl Effect {
     }
 }
 
+/// Analog to react's useEffect API.
+/// The effect runs after the render pass that first renders the component and again whenever
+/// the hash of the argument changes. It can return a cleanup function, which runs before the
+/// effect runs again and when the component is removed.
+/// Cleanups don't have to be `Send`, so they can hold on to JavaScript objects.
 pub fn use_effect<A, C>(arg: A, effect: fn(A) -> C)
 where
     A: Hash + Send + Sync + 'static,
