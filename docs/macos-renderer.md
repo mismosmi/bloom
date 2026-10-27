@@ -1,47 +1,71 @@
 # A native macOS renderer for bloom: evaluation
 
-**Verdict: feasible, and bloom-core needs no changes to get started.** A minimal AppKit renderer
-plugs into the existing `ObjectModel` trait and `render_loop`. The real work sits outside the core:
-a node vocabulary that isn't HTML, layout, text measurement, and native controls that hold their
-own state.
+**Verdict: feasible, and bloom-core needs no changes to get started.** An AppKit renderer plugs
+into the existing `ObjectModel` trait and `render_loop`.
 
-There is a working prototype in [`prototypes/bloom-macos`](../prototypes/bloom-macos) (~650 lines
-excluding tests). From Linux:
+**Direction.** The renderer stays as close to AppKit's own paradigm as possible:
 
-- a headless test runs `render_loop` with a non-HTML node type, using `rsx!`, `use_state` and a
-  click handler that triggers a re-render: **passes**;
-- the AppKit backend type-checks and passes clippy with `--target aarch64-apple-darwin`.
+- nodes are typed mirrors of AppKit classes (`Window`, `StackView`, `Button`, `TextField`), not
+  string tags;
+- props are named after AppKit properties and take AppKit's own types;
+- layout is AppKit's (`NSStackView` with Auto Layout);
+- events are target/action and delegates, and handlers receive the sender.
 
-The prototype has **not been run on a Mac**. That is the first thing to do with it
-(`cargo run --example counter`).
+Cross-platform abstractions can be built on top of this later.
+
+There is a working prototype in [`prototypes/bloom-appkit`](../prototypes/bloom-appkit) (~780
+lines of library code). It has been type-checked and passes clippy with `--target aarch64-apple-darwin` from
+Linux. It has **not yet been compiled natively, run, or tested on a Mac**. The first step is
+`cargo test && cargo run --example counter` there.
+
+```rust
+rsx!(
+    <Window title="bloom" content_size={NSSize::new(320.0, 160.0)}>
+        <StackView orientation={NSUserInterfaceLayoutOrientation::Vertical} spacing=8>
+            {format!("Count: {}", *count)}
+            <TextField
+                placeholder_string="Your name"
+                string_value={name.to_string()}
+                on_change={move |field: &NSTextField| {
+                    let value = field.stringValue().to_string();
+                    name.update(move |_| value)
+                }}
+            />
+            <Button title="Increment" on_action={move |_| count.update(|c| *c + 1)} />
+        </StackView>
+    </Window>
+)
+```
 
 ## 1. How bloom plugs into a backend today
 
-| Piece | Where | Web implementation | Reusable on macOS? |
-|---|---|---|---|
-| Diffing, hooks, effects, context | `bloom-core` | – | Yes, unchanged |
-| Backend interface: `create(node, parent, sibling)`, `update(old, new)`, `remove`, `start`/`finalize`, `subscribe` | `bloom_core::ObjectModel` | `bloom-client::Dom` | Yes, it's a retained-mode interface that maps directly onto a view tree |
-| Node type (`Component::Node`) | `bloom-html::HtmlNode` | – | **No.** Event handlers are typed `Fn(web_sys::Event)` and `DomRef` stores `web_sys::Node` |
-| `rsx!` | `bloom-rsx` | expands to `tag("x").attr(..).on(..).dom_ref(..).build().children(..)` | Yes. The macro is duck-typed, so any crate exporting a matching `tag()` builder works |
-| Task spawning | `futures::task::Spawn` arg | `spawn_local` | Yes. Any thread pool works for component futures |
+| Piece | Where | Reusable for AppKit? |
+|---|---|---|
+| Diffing, hooks, effects, context | `bloom-core` | Yes, unchanged |
+| Backend interface: `create(node, parent, sibling)`, `update(old, new)`, `remove`, `start`/`finalize`, `subscribe` | `bloom_core::ObjectModel` | Yes. It's retained-mode and maps directly onto AppKit's object graph |
+| Node type (`Component::Node`) | `bloom-html::HtmlNode` | No. It needs its own node type (§2.3) |
+| `rsx!` | `bloom-rsx` | Yes, unchanged. Capitalised names expand to `Name::builder().prop(v).children(..).build().into()`, so typed node structs with builders work without string tags |
+| Task spawning | `futures::task::Spawn` argument | Yes. Component futures run on any thread pool |
 
-`render_loop` puts no `Send` bound on the `ObjectModel`, so a model that owns `!Send` AppKit objects
-(`Retained<NSView>`) compiles as is. Effects run inside the render loop, so on the main thread they
-can touch views directly.
+`render_loop` puts no `Send` bound on the `ObjectModel`, so a model that owns `!Send` AppKit
+objects (`Retained<NSView>`) compiles as is. Effects run inside the render loop, on the main
+thread, so they can call AppKit directly.
 
 ## 2. Architecture
 
 ```
-Component (Node = NativeNode)
-        │ rsx!
+Component (Node = AppKitNode)
+        │ rsx!  <Window> <StackView> <Button> …
         ▼
 bloom-core render_loop ──spawn──▶ thread pool (Send component futures)
-        │ create / update / remove / finalize
+        │ create / update / remove
         ▼
 AppKitModel (main thread only)
-  ├─ PtrWeakKeyHashMap<Weak<NativeNode>, NodeState{ NSView, taffy NodeId, ActionTarget }>
-  ├─ taffy LayoutTree → frames assigned in finalize()
-  └─ NSWindow.contentView (flipped root view)
+  PtrWeakKeyHashMap<Weak<AppKitNode>, { Native object, Slot it is attached to }>
+        │
+        ├─ Application → NSWindow children
+        ├─ Window      → its single child becomes contentView
+        └─ StackView   → children become arranged subviews (Auto Layout)
         ▲
 main-thread executor: Waker → dispatch_async(main queue) → poll render_loop
 ```
@@ -49,105 +73,121 @@ main-thread executor: Waker → dispatch_async(main queue) → poll render_loop
 ### 2.1 Bindings: `objc2` + `objc2-app-kit`
 
 `objc2` and its generated framework crates are the maintained, standard way to call AppKit from
-Rust (winit, wgpu and Tauri's stack use them). They provide `MainThreadMarker`/`MainThreadOnly` to
-enforce AppKit's threading rules at compile time, and `define_class!` for the two Objective-C
-subclasses a renderer needs: a flipped `NSView`, and a target object for target/action events.
+Rust (winit, wgpu and Tauri's stack use them). The relevant pieces:
+
+- **`MainThreadMarker`/`MainThreadOnly`** enforce AppKit's threading rules at compile time.
+- **`define_class!`** declares the one Objective-C class the prototype needs: `BloomTarget`, an
+  action target that is also an `NSTextFieldDelegate`.
+- **`dispatch2::MainThreadBound`** makes `Outlet<T>` `Send + Sync` so it can live in `use_ref`.
 
 Alternatives considered:
 
-- **cacao**: a higher-level wrapper, but development has stalled and it would sit between bloom and
-  AppKit anyway.
-- **SwiftUI**: it is itself a diffing framework, and Rust can only drive it through a Swift bridge.
-  This means two reconcilers and a hard FFI boundary.
-- **WKWebView + bloom-client** (Tauri-style): already possible today with no new renderer, but it
-  isn't native UI.
-- **Custom drawing** (Blitz/vello, Xilem): not native controls, so accessibility and the platform
-  look would have to be rebuilt.
+- **cacao**: development has stalled, and it is another layer between bloom and AppKit.
+- **SwiftUI**: it is itself a diffing framework, so this would mean two reconcilers and a Swift
+  bridge.
+- **WKWebView + bloom-client**: possible today, but not native.
+- **Custom drawing** (Blitz, Xilem): not native controls.
 
 ### 2.2 Threading and the event loop
 
 AppKit must run on the main thread, and `NSApplication.run()` owns that thread. The prototype's
-[`executor.rs`](../prototypes/bloom-macos/src/executor.rs) stores the `render_loop` future in a
+[`executor.rs`](../prototypes/bloom-appkit/src/executor.rs) stores the `render_loop` future in a
 main-thread `thread_local`. Its `Waker` calls `DispatchQueue::main().exec_async(poll)`, and wakes
 are coalesced with an `AtomicBool`. AppKit drains the main queue between events, so render passes
-interleave with input handling. Component futures are `Send` and run on a `ThreadPool`. When one
-completes it signals the render loop, which wakes the main thread.
+interleave with input handling. Component futures are `Send` and run on a `ThreadPool`.
 
-This replaces `wasm_bindgen_futures::spawn_local` and is roughly 60 lines.
+The executor is about 60 lines, and replaces `wasm_bindgen_futures::spawn_local`.
 
-### 2.3 Node vocabulary: a new crate, not `bloom-html`
+### 2.3 Node types mirror AppKit classes
 
-`HtmlNode` can't be reused: `HtmlElementBuilder::on` takes `Fn(web_sys::Event)`, and `bloom-html`
-depends on `web-sys`. A native node crate needs:
+[`node.rs`](../prototypes/bloom-appkit/src/node.rs) defines one struct per AppKit class.
 
-- `NativeNode { Element(Arc<NativeElement>), Text(String) }` with `From<String>`, because bare
-  strings in `rsx!` become text nodes;
-- a `tag()` builder with `attr` / `on` / `build` / `children` (and a `ref` replacement for
-  `DomRef`), so that `rsx!` works unchanged;
-- a platform-neutral event enum (`Click`, `Change(String)`, …) so node descriptions stay
-  `Send + Sync` and testable without a Mac.
+| Node | AppKit | Props (AppKit property names) | Children |
+|---|---|---|---|
+| (root) | `NSApplication` | – | `Window`s |
+| `Window` | `NSWindow` | `title`, `content_size: NSSize`, `outlet` | one view → `contentView` |
+| `StackView` | `NSStackView` | `orientation: NSUserInterfaceLayoutOrientation`, `alignment: NSLayoutAttribute`, `spacing`, `edge_insets: NSEdgeInsets`, `outlet` | arranged subviews |
+| `Button` | `NSButton` | `title`, `enabled`, `bezel_style: NSBezelStyle`, `key_equivalent`, `on_action`, `outlet` | – |
+| `TextField` | `NSTextField` | `string_value`, `placeholder_string`, `editable`, `selectable`, `bezeled`, `draws_background`, `on_action`, `on_change`, `outlet` | – |
 
-The prototype maps tags as follows: `stack`/`view` → flipped `NSView`, `button` → `NSButton`, text
-→ `NSTextField` label. A real crate would add `input`, `image`, `scroll`, `toggle`, `select`,
-`list`, etc.
+Design points:
 
-**Cross-platform decision.** Because `Component` has an associated `Node` type, a component written
-for `HtmlNode` can't render on macOS. If the goal is "true native cross-platform" (README), the node
-crate should be a platform-neutral `bloom-native` vocabulary (React Native's model), with
-`bloom-macos` as its first backend. GTK/WinUI backends, or a DOM backend in the style of
-react-native-web, can come later. This decision shapes the public API more than anything else, so
-make it before writing much code.
+- **Props.** Every prop is an `Option`. An unset prop leaves AppKit's default alone. On `update`,
+  a prop is written only when it differs from the previous node's value. Enum props take
+  objc2's own types (`NSUserInterfaceLayoutOrientation::Vertical`), so there is no translation
+  layer to keep in sync with AppKit.
+- **Bare strings in `rsx!`** become labels, configured the way `+[NSTextField labelWithString:]`
+  does it. This is needed because bloom-core requires `Node: From<String>`.
+- **`Outlet<T>`** is the IBOutlet equivalent: `use_ref::<Outlet<NSButton>>()`, passed as
+  `outlet={…}`. It gives effects the real `Retained<NSButton>` for anything the props don't
+  cover (`makeFirstResponder`, animations, …). `ref` is a keyword in prop position, which is
+  another reason for the AppKit name.
+- **Names.** The NS prefix is dropped so that `bloom_appkit::Button` (description) doesn't
+  collide with `objc2_app_kit::NSButton` (object). Handlers and outlets use the latter. This is
+  cheap to revisit.
+- **Builders.** They are hand-written, with two small macros for props and actions. A derive in
+  `bloom-macro` would make adding classes mechanical. That matters because the class set will
+  keep growing: `NSImageView`, `NSScrollView`, `NSPopUpButton`, `NSSwitch`, `NSSlider`,
+  `NSTableView`/`NSOutlineView`, `NSSplitView`, `NSTabView`, and menus.
 
-### 2.4 Layout: taffy
+### 2.4 Layout is AppKit's
 
-AppKit has no flexbox. The two options are:
+There is no layout engine in the renderer. `NSWindow` sizes its `contentView`, and `NSStackView`
+arranges its subviews with Auto Layout using each control's intrinsic content size. `finalize()`
+has nothing to do. This removes the taffy dependency an earlier version of the prototype used,
+along with its measurement and resize problems: window resizing, text wrapping and baselines are
+AppKit's job.
 
-1. **Auto Layout/`NSStackView`**: translate styles into constraints. Constraint updates on
-   every diff are slow and hard to debug, and AppKit's model doesn't match CSS-like props.
-2. **taffy** (Rust flexbox/grid, the Yoga equivalent): keep a taffy node per view. Leaf controls
-   are measured with `fittingSize`. Layout runs once per pass in `finalize()` and the result is
-   assigned to `NSView.frame`. Containers are flipped so that taffy's top-left origin matches.
+Open question: arbitrary Auto Layout. `NSStackView` covers most forms and toolbars. For anything
+else, AppKit's answer is constraints between views. Options, in increasing order of effort:
 
-The prototype uses taffy ([`layout.rs`](../prototypes/bloom-macos/src/layout.rs)), which is the
-recommended option. Remaining work:
+1. a plain `View` (`NSView`) node plus `Outlet`s, with constraints set up imperatively in an
+   effect;
+2. a declarative `constraints` prop that refers to sibling outlets;
+3. `NSGridView` as a further typed node.
 
-- **Text measurement**: wrapping labels need width-constrained measuring
-  (`NSTextFieldCell.cellSizeForBounds:`) rather than `fittingSize`.
-- **Window resize**: re-run layout on `windowDidResize`/`setFrameSize:` without a full render pass.
-  The layout tree then needs to be shared (`Rc<RefCell<…>>`) between the model and a resize hook.
-- **Style props**: colours, borders and corner radius go through `wantsLayer` + `CALayer`. Fonts go
-  through `NSFont`. Pick a typed style API rather than stringly CSS.
+Option 1 is enough to ship. Decide on option 2 once real layouts need it.
 
-### 2.5 Events
+### 2.5 Events: target/action and delegates
 
-`NSControl` uses target/action, and the target is held **weakly**. The prototype's `ActionTarget`
-(`define_class!` over `NSObject`, with a `Box<dyn Fn()>` ivar) is therefore stored in `NodeState`.
-It captures the `Arc<NativeNode>` and is rebuilt on `update`, the same approach as bloom-client's
-`Closure`s. Text input needs an `NSTextFieldDelegate` (`controlTextDidChange:`). Lists need an
-`NSTableView` data source. Both are further `define_class!` objects of the same kind.
+- **Target/action.** Every control gets a `BloomTarget` as its `target` with
+  `action = performAction:`. AppKit holds targets and delegates **weakly**, so the model keeps
+  each `BloomTarget` alive next to its control.
+- **Handler types.** Handlers have the AppKit signature with the sender:
+  `on_action: Fn(&NSButton)`, `on_change: Fn(&NSTextField)` (from the delegate's
+  `controlTextDidChange:`). They are stored as `Arc<dyn Fn(&T) + Send + Sync>` so that nodes can
+  be built on the thread pool. They are only ever called on the main thread.
+- **Rebinding.** Closures can't be compared, so the handler inside the existing target is
+  swapped on every update. The control and target stay the same objects.
+- **Constraint found while type-checking.** `State::update` closures must be `Send`, so a
+  handler can't capture the sender inside them. It has to read plain data first:
+  `let v = field.stringValue().to_string(); name.update(move |_| v)`. This is the same rule as
+  for AppKit code that hops queues, and it is worth documenting for users.
+- **Controlled text fields.** `string_value` is compared against the field's *current* value,
+  not the previous prop, before writing. This avoids moving the cursor while the user types.
+
+Still to add: an `NSWindowDelegate` (`windowWillClose:` → `on_close`; today, closing a window
+that the tree still renders leaves a hidden window), an app delegate (terminate after the last
+window closes), and menus (`NSMenu` as nodes under the application).
 
 ## 3. Gaps in bloom-core this exposed
 
-None of these blocks a first version, but the first two cause visible bugs in native UIs.
+None of these blocks a first version, but the first two cause visible bugs.
 
-1. **Changing a node's tag keeps its children in the old parent.** For `(Node, Node)`, the core
-   always calls `ObjectModel::update` and then diffs the children against the *new* parent
-   (`render_loop.rs`, the `Update` arm). When a backend has to swap the native object (for example
-   `stack` → `button`, or `div` → `span` on the web), the children stay attached to the replaced
-   object. `bloom-client`'s `replace_child` path has the same problem. Fix: let the core treat an
-   incompatible change as `remove` + `create`, either with an `ObjectModel::can_update(old, new)`
-   hook or a node-kind comparison.
-2. **No keyed children.** `update_children` diffs by position. Reordering a list re-targets every
-   row. On native, rows carry real state (focus, cursor position, scroll offset, selection), so this
-   is far more noticeable than in the DOM. Add `key`s.
-3. **`update` is called for every node on every pass.** `HtmlElement`'s `PartialEq` returns false
-   whenever callbacks exist. Backends should diff attributes themselves (the prototype rebuilds
-   targets each time, which is cheap), or the core could skip unchanged nodes.
-4. **`start`/`finalize` futures must be `Send`.** This is unnecessary because `render_loop` itself
-   isn't `Send`, and it would block a `finalize` that awaits a display-link tick through `!Send`
-   objects. Removing the bound is easy and the change is backwards compatible.
-5. **Controlled inputs.** Writing `stringValue` back on every render moves the cursor. Backends
-   must only write when the value differs. A core helper or documented convention would help.
+1. **Changing a node's type keeps its children in the replaced object.** For `(Node, Node)`, the
+   core always calls `ObjectModel::update` and then diffs the children against the new parent.
+   When a node changes AppKit class (`StackView` → `Button`, or `div` → `span` on the web), the
+   backend has to swap objects. The prototype swaps leaves correctly, but a replaced
+   `StackView`'s children stay in the old view. `bloom-client`'s `replace_child` path has the same
+   problem. Fix: let the core treat an incompatible change as `remove` + `create`, through an
+   `ObjectModel::can_update(old, new)` hook or a node-kind comparison.
+2. **No keyed children.** `update_children` diffs by position. Native controls carry real state
+   (focus, cursor position, scroll offset, selection), so position-based reuse shows up as focus
+   jumping between rows. Add `key`s.
+3. **`update` is called for every node on every pass.** The prototype keeps this cheap by
+   diffing props itself, but the core could skip nodes whose elements are identical.
+4. **`start`/`finalize` futures must be `Send`.** This is unnecessary because `render_loop`
+   itself isn't `Send`. Removing the bound is backwards compatible.
 
 ## 4. Effort estimate
 
@@ -155,30 +195,34 @@ Rough figures for one developer who knows Rust but not AppKit:
 
 | Phase | Scope | Estimate |
 |---|---|---|
-| 0. Core prep | Tag-change replace (§3.1), drop `Send` on `start`/`finalize`, macOS CI job | 2–4 days |
-| 1. MVP | `bloom-native` node crate, `bloom-macos` with window, view/stack, text, button, text input, image; taffy layout; target/action and delegate events; `NativeRef`; example; `macos-latest` CI | 2–3 weeks (the prototype covers roughly a third of this) |
-| 2. Usable | Typed styles (colour/border/radius/font), wrapping text, scroll views, keyed children (§3.2), resize relayout, focus/keyboard, menus, multiple windows | 4–6 weeks |
-| 3. Polish | Accessibility audit, animations, virtualised lists (`NSTableView`), `.app` bundling/codesigning (`cargo-bundle`), UI tests | open-ended |
+| 0. Core prep | Kind-change replace (§3.1), drop `Send` on `start`/`finalize`, macOS CI job | 2–4 days |
+| 1. MVP | Promote the prototype to a `bloom-appkit` crate; run it on macOS; window/app delegates; `View`, `ImageView`, `ScrollView`, `Switch`, `Slider`, `PopUpButton`; builder derive; examples; `macos-latest` CI | 2–3 weeks (the prototype covers roughly a third) |
+| 2. Usable | Keyed children (§3.2), `NSTableView`/`NSOutlineView` with data sources, menus, constraint API (§2.4), focus/first responder, multiple windows with delegates | 4–6 weeks |
+| 3. Polish | Accessibility review, animations, `.app` bundling/codesigning (`cargo-bundle`), UI tests | open-ended |
+
+Using AppKit's layout instead of taffy takes about a week out of the earlier estimate.
+Supporting the class surface (one typed node per class, with its props) becomes the main ongoing
+cost, which is why a builder derive is in phase 1.
 
 ## 5. Risks
 
-- **Layout fidelity**: taffy is solid, but text measurement and baseline alignment against AppKit
-  controls take iteration.
-- **Native-state controls** (text fields, scroll views, tables) are where React Native spent most of
-  its effort. Without keys (§3.2) and careful controlled-input handling, they will feel wrong.
-- **Testing**: AppKit code can be type-checked on Linux (verified), but anything that runs needs a
-  macOS runner. Keep as much as possible platform-neutral (node crate, layout, a recording
-  `ObjectModel`) so most tests stay on ubuntu.
-- **API churn**: choosing `bloom-native` versus a macOS-specific vocabulary is a one-way door for
-  users' components.
+- **Data-source views.** `NSTableView` and `NSOutlineView` pull rows through a data source instead
+  of owning child views, so they don't fit "children = subviews". They need a dedicated design,
+  for example a `rows` prop plus a component per row rendered into the cell views.
+- **Native-state controls.** Without keys (§3.2), list reordering will feel wrong.
+- **Testing.** The whole crate is macOS-only, because handlers take AppKit types. The prototype
+  can be type-checked from Linux (verified), but its tests need a macOS runner.
+  `tests/headless.rs` keeps most logic testable without creating AppKit objects or needing the
+  main thread.
+- **API surface growth.** Mirroring AppKit faithfully means many node types and props. Generating
+  them, or at least deriving the builders, keeps this manageable.
 
 ## 6. Recommended next steps
 
-1. Run the prototype on a Mac (`cd prototypes/bloom-macos && cargo run --example counter`) to
-   confirm the executor and frame assignment behave as type-checked.
-2. Decide on the node vocabulary question (§2.3).
-3. Fix §3.1 in bloom-core, with a headless test using a recording `ObjectModel` like the one in
-   `prototypes/bloom-macos/tests/headless.rs`.
-4. Promote the prototype into workspace crates (`bloom-native`, `bloom-macos`) and add a
-   `macos-latest` CI job. On ubuntu, `cargo clippy --target aarch64-apple-darwin -p bloom-macos`
-   also works as a cheap type-check.
+1. On a Mac: `cd prototypes/bloom-appkit && cargo test && cargo run --example counter` to confirm
+   that the executor, target/action and stack layout behave as they type-check.
+2. Fix §3.1 in bloom-core, with a headless test using a recording `ObjectModel`.
+3. Promote the prototype into a workspace crate `bloom-appkit`, gated on `target_os = "macos"`.
+   Add a `macos-latest` CI job. On ubuntu, `cargo clippy --target aarch64-apple-darwin -p
+   bloom-appkit` works as a cheap type-check.
+4. Add the window/app delegates and the next batch of controls, then tackle `NSTableView`.
