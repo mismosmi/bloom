@@ -7,19 +7,18 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-anyhow = "1.0.86"
-async-trait = "0.1.80"
+anyhow = "1.0.104"
+async-trait = "0.1.92"
 bloom-client = { version = "0.1.0", path = "../bloom-client" }
 bloom-core = { version = "0.1.0", path = "../bloom-core" }
 bloom-html = { version = "0.1.0", path = "../bloom-html" }
 bloom-rsx = { version = "0.1.0", path = "../bloom-rsx" }
 bloom-ssr = { version = "0.1.0", path = "../bloom-ssr" }
 builder-pattern = "0.4.2"
-futures-util = "0.3.30"
-serde = { version = "1.0.203", features = ["derive"] }
-wasm-bindgen = "0.2.92"
-web-sys = "0.3.69"
+futures-util = "0.3.34"
+serde = { version = "1.0.229", features = ["derive"] }
+wasm-bindgen = "0.2.129"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-axum = "0.7.5"
-tokio = { version = "1.38.0", features = ["rt-multi-thread"] }
+axum = "0.8.9"
+tokio = { version = "1.54.1", features = ["rt-multi-thread"] }

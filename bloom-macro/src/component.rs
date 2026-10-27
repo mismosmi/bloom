@@ -51,7 +51,7 @@ pub(crate) fn transform_component(
             panic!("{}", RETURN_TYPE_ERROR_MSG)
         }
         syn::ReturnType::Type(_arrow, return_type) => match *return_type {
-            syn::Type::Path(TypePath { path, qself: _ }) => {
+            syn::Type::Path(TypePath { path, .. }) => {
                 let result = path
                     .segments
                     .into_iter()

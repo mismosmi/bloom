@@ -153,21 +153,58 @@ pub trait ObjectModel {
 /// </html>
 /// ```
 ///
-/// ```ignore
-/// render_loop(get_element_by_id('root'), ...)
-/// ```
 ///
 /// The element is the root of the component tree that represents the intended UI.
-/// This is usually a component:
-/// ```ignore
-/// render_loop(root_node, rsx!(<MyComponent />), ...)
-/// ```
+/// This is usually a component.
 ///
 /// The spawner-argument is
-/// an object that implements the Spawn-trait so bloom can spawn async tasts on
+/// an object that implements the Spawn-trait so bloom can spawn async tasks on
 /// arbitrary task runners such as tokio or async-std.
 ///
-///  The object model is the interface to the host environment.
+/// The object model is the interface to the host environment.
+/// It is notified whenever a node needs to be created, removed or updated:
+/// ```no_run
+/// # use std::sync::Arc;
+/// # use async_trait::async_trait;
+/// # use bloom_core::{Component, Element};
+/// use bloom_core::{render_loop, ObjectModel};
+/// use bloom_html::{prelude::*, HtmlNode};
+/// use bloom_rsx::{rsx, NoopBuilder};
+///
+/// struct PrintObjectModel;
+///
+/// impl ObjectModel for PrintObjectModel {
+///     type Node = HtmlNode;
+///
+///     fn create(&mut self, node: &Arc<HtmlNode>, _parent: &Arc<HtmlNode>, _sibling: &Option<Arc<HtmlNode>>) {
+///         println!("create {:?}", node);
+///     }
+///
+///     fn remove(&mut self, node: &Arc<HtmlNode>, _parent: &Arc<HtmlNode>) {
+///         println!("remove {:?}", node);
+///     }
+///
+///     fn update(&mut self, node: &Arc<HtmlNode>, next: &Arc<HtmlNode>) {
+///         println!("update {:?} to {:?}", node, next);
+///     }
+/// }
+///
+/// # #[derive(PartialEq, NoopBuilder)]
+/// # struct MyComponent;
+/// # #[async_trait]
+/// # impl Component for MyComponent {
+/// #     type Node = HtmlNode;
+/// #     type Error = ();
+/// #     async fn render(self: Arc<Self>) -> Result<Element<HtmlNode, ()>, ()> {
+/// #         Ok(rsx!(<div />))
+/// #     }
+/// # }
+/// let root = Arc::new(HtmlNode::element("div").build().into());
+/// let spawner = futures_executor::ThreadPool::new().unwrap();
+///
+/// futures_executor::block_on(render_loop(root, rsx!(<MyComponent />), spawner, PrintObjectModel))
+///     .unwrap();
+/// ```
 pub async fn render_loop<N, E, S, P>(
     root: Arc<N>,
     element: Element<N, E>,

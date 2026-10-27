@@ -8,21 +8,38 @@ use crate::hook::Hook;
 /// The object returned from ref is guaranteed to be the same object
 /// on every subsequent call to a component's render-function.
 /// The most common use case is with HtmlNodes:
-/// ```ignore
-/// let my_div = use_ref::<DomRef>()
+/// ```
+/// # use std::sync::Arc;
+/// # use async_trait::async_trait;
+/// # use bloom_core::{Component, Element};
+/// # use bloom_html::{prelude::*, HtmlNode};
+/// use bloom_core::{use_effect, use_ref};
+/// use bloom_html::DomRef;
+/// use bloom_rsx::rsx;
 ///
-/// rsx!(
-///     <div ref=my_div />
-/// )
+/// # #[derive(PartialEq)]
+/// # struct MyComponent;
+/// # #[async_trait]
+/// # impl Component for MyComponent {
+/// #     type Node = HtmlNode;
+/// #     type Error = ();
+/// #     async fn render(self: Arc<Self>) -> Result<Element<HtmlNode, ()>, ()> {
+/// let my_div = use_ref::<DomRef>();
+///
+/// // This can be used in an effect to manipulate the DOM directly:
+/// use_effect(my_div.clone(), |my_div| {
+///     if let Some(node) = my_div.get() {
+///         node.set_text_content(Some("Hello, world!"));
+///     }
+/// });
+///
+/// Ok(rsx!(
+///     <div ref={my_div} />
+/// ))
+/// #     }
+/// # }
 /// ```
 /// where my_div will contain a reference to the div element after it has been rendered.
-///
-/// This can be used in an effect to manipulate the DOM directly:
-/// ```ignore
-/// use_effect((), |_| {
-///     my_div.get().set_inner_text("Hello, world!");
-/// })
-/// ```
 pub fn use_ref<T>() -> Arc<T>
 where
     T: Default + Send + Sync + 'static,

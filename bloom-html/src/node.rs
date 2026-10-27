@@ -14,8 +14,12 @@ use crate::{
 /// a text-node or a comment.
 ///
 /// HtmlNodes will be mainly constructed using bloom-rsx:
-/// ```ignore
-/// rsx!(<div id="123" on_click=|_| { alert!("clicked")} />)
+/// ```
+/// use bloom_core::Element;
+/// use bloom_html::{prelude::*, HtmlNode};
+/// use bloom_rsx::rsx;
+///
+/// let element: Element<HtmlNode, ()> = rsx!(<div id="123" on_click={|_| println!("clicked")} />);
 /// ```
 #[derive(Debug, PartialEq, Clone)]
 pub enum HtmlNode {

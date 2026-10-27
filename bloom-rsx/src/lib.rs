@@ -1,7 +1,8 @@
 use proc_macro2::TokenStream;
 use quote::quote;
+use rstml::node::{Node, NodeAttribute, NodeBlock, NodeName};
+use rstml::parse2;
 use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Expr, ExprPath, Fields};
-use syn_rsx::{parse2, Node, NodeName};
 
 /// The core rsx macro.
 /// Transforms
@@ -17,77 +18,77 @@ pub fn rsx(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 fn transform_node(node: Node) -> TokenStream {
     match node {
-        Node::Element(element) => match &element.name {
-            NodeName::Block(_) => transform_tag(element.name, element.attributes, element.children),
-            NodeName::Path(path) => {
-                if let Some(ident) = path.path.get_ident() {
-                    if ident
-                        .to_string()
-                        .chars()
-                        .nth(0)
-                        .expect("Cannot render empty identifier")
-                        .is_lowercase()
-                    {
-                        transform_tag(element.name, element.attributes, element.children)
+        Node::Element(element) => {
+            let name = element.open_tag.name;
+            let attributes = element.open_tag.attributes;
+            let children = element.children;
+            match &name {
+                NodeName::Path(path) => {
+                    let is_tag = path.path.get_ident().is_some_and(|ident| {
+                        ident
+                            .to_string()
+                            .chars()
+                            .next()
+                            .expect("Cannot render empty identifier")
+                            .is_lowercase()
+                    });
+                    if is_tag {
+                        transform_tag(&name, attributes, children)
                     } else {
-                        transform_component(path, element.attributes, element.children)
+                        transform_component(path, attributes, children)
                     }
-                } else {
-                    transform_component(path, element.attributes, element.children)
+                }
+                NodeName::Block(_) | NodeName::Punctuated(_) => {
+                    transform_tag(&name, attributes, children)
                 }
             }
-            NodeName::Punctuated(_) => {
-                transform_tag(element.name, element.attributes, element.children)
-            }
+        }
+        Node::Block(block) => match block {
+            NodeBlock::ValidBlock(block) => quote! {
+                #block.into()
+            },
+            NodeBlock::Invalid(_) => panic!("Invalid block"),
         },
-        Node::Attribute(_) => {
-            panic!("Invalid attribute")
-        }
-        Node::Block(block) => {
-            let value: &Expr = block.value.as_ref();
-            quote! {
-                #value.into()
-            }
-        }
         Node::Comment(_) => TokenStream::new(),
         Node::Doctype(_) => TokenStream::new(),
         Node::Fragment(fragment) => transform_children(fragment.children),
         Node::Text(text) => {
-            let _text: &Expr = text.value.as_ref();
+            let _text = text.value;
             quote! { #_text.to_string().into() }
         }
+        Node::RawText(text) => {
+            let _text = text.to_string_best();
+            quote! { #_text.to_string().into() }
+        }
+        Node::Custom(_) => unreachable!("custom nodes are not enabled"),
     }
 }
 
-fn transform_attributes(attributes: Vec<Node>) -> TokenStream {
+fn transform_attributes(attributes: Vec<NodeAttribute>) -> TokenStream {
     let mut attrs = TokenStream::new();
     attributes
         .into_iter()
         .map(|attribute| match attribute {
-            Node::Attribute(attribute) => {
+            NodeAttribute::Attribute(attribute) => {
                 let name = attribute.key.to_string();
 
                 if name == "ref" {
-                    let _value: Expr = attribute.value.expect("Refs must be Arc<DomRef>").into();
+                    let _value: &Expr = attribute.value().expect("Refs must be Arc<DomRef>");
                     quote! {
                         .dom_ref(#_value)
                     }
-                } else if name.starts_with("on_") {
-                    let _value: Expr = attribute.value.expect("Callbacks must be functions").into();
-                    let name = name[3..].to_string();
+                } else if let Some(event) = name.strip_prefix("on_") {
+                    let _value: &Expr = attribute.value().expect("Callbacks must be functions");
                     quote! {
-                        .on(#name, #_value)
+                        .on(#event, #_value)
+                    }
+                } else if let Some(_value) = attribute.value() {
+                    quote! {
+                        .attr(#name, #_value)
                     }
                 } else {
-                    if let Some(value) = attribute.value {
-                        let _value: Expr = value.into();
-                        quote! {
-                            .attr(#name, #_value)
-                        }
-                    } else {
-                        quote! {
-                            .attr(#name, true)
-                        }
+                    quote! {
+                        .attr(#name, true)
                     }
                 }
             }
@@ -97,16 +98,15 @@ fn transform_attributes(attributes: Vec<Node>) -> TokenStream {
     attrs
 }
 
-fn transform_props(attributes: Vec<Node>) -> TokenStream {
+fn transform_props(attributes: Vec<NodeAttribute>) -> TokenStream {
     let mut props = TokenStream::new();
     attributes
         .into_iter()
         .map(|attribute| match attribute {
-            Node::Attribute(attribute) => {
-                let name = attribute.key;
+            NodeAttribute::Attribute(attribute) => {
+                let name = &attribute.key;
 
-                if let Some(value) = attribute.value {
-                    let value: Expr = value.into();
+                if let Some(value) = attribute.value() {
                     quote! {
                         .#name(#value)
                     }
@@ -135,7 +135,11 @@ fn transform_children(nodes: Vec<Node>) -> proc_macro2::TokenStream {
     }
 }
 
-fn transform_component(tag: &ExprPath, attributes: Vec<Node>, children: Vec<Node>) -> TokenStream {
+fn transform_component(
+    tag: &ExprPath,
+    attributes: Vec<NodeAttribute>,
+    children: Vec<Node>,
+) -> TokenStream {
     let attributes = transform_props(attributes);
     let children = if children.is_empty() {
         TokenStream::new()
@@ -150,7 +154,11 @@ fn transform_component(tag: &ExprPath, attributes: Vec<Node>, children: Vec<Node
     }
 }
 
-fn transform_tag(tag: NodeName, attributes: Vec<Node>, children: Vec<Node>) -> TokenStream {
+fn transform_tag(
+    tag: &NodeName,
+    attributes: Vec<NodeAttribute>,
+    children: Vec<Node>,
+) -> TokenStream {
     let attributes = transform_attributes(attributes);
     let children = if children.is_empty() {
         quote! {
@@ -203,7 +211,7 @@ mod tests {
     #[test]
     fn transform_text() {
         let actual = super::transform_node(
-            syn_rsx::parse2(quote! { "hello world" })
+            rstml::parse2(quote! { "hello world" })
                 .unwrap()
                 .into_iter()
                 .nth(0)
@@ -218,7 +226,7 @@ mod tests {
     #[test]
     fn pass_ref() {
         let actual = super::transform_node(
-            syn_rsx::parse2(quote! { <div ref={my_ref}></div> })
+            rstml::parse2(quote! { <div ref={my_ref}></div> })
                 .unwrap()
                 .into_iter()
                 .nth(0)
@@ -233,7 +241,7 @@ mod tests {
     #[test]
     fn render_component() {
         let actual = super::transform_node(
-            syn_rsx::parse2(quote! {
+            rstml::parse2(quote! {
                 <MyComponent number_prop=123 boolean_prop>
                   <div id="child" />
                 </MyComponent>
@@ -249,7 +257,7 @@ mod tests {
     #[test]
     fn render_leaf_component() {
         let actual = super::transform_node(
-            syn_rsx::parse2(quote! {
+            rstml::parse2(quote! {
                 <MyComponent number_prop=123 boolean_prop label="test" />
             })
             .unwrap()

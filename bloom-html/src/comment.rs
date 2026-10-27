@@ -11,8 +11,11 @@ pub struct HtmlComment {
 
 impl HtmlComment {
     /// Build a new HTML comment
-    /// ```ignore
-    /// HtmlComment::new().text("foo").build();
+    /// ```
+    /// use bloom_html::HtmlComment;
+    ///
+    /// let comment = HtmlComment::new().text("foo").build();
+    /// assert_eq!(comment.text(), "foo");
     /// ```
     pub fn new() -> HtmlCommentBuilder<()> {
         HtmlCommentBuilder {
@@ -38,11 +41,14 @@ pub struct HtmlCommentBuilder<T> {
 }
 
 impl<T> HtmlCommentBuilder<T> {
-    /// Use
-    /// ```ignore
-    /// let comment = use_ref::<DomRef>();
+    /// Use [bloom_core::use_ref] to obtain the `Arc<DomRef>` to pass to this method:
     /// ```
-    /// to obtain the `Arc<DomRef>` to pass to this method.
+    /// use bloom_core::use_ref;
+    /// use bloom_html::{DomRef, HtmlComment};
+    ///
+    /// let comment_ref = use_ref::<DomRef>();
+    /// let comment = HtmlComment::new().dom_ref(comment_ref).text("foo").build();
+    /// ```
     pub fn dom_ref(mut self, dom_ref: Arc<DomRef>) -> Self {
         self.dom_ref = Some(dom_ref);
         self

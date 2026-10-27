@@ -12,7 +12,4 @@ members = [
     "bloom-macro",
 ]
 
-# work in progress, does not compile yet
-exclude = ["bloom-hybrid"]
-
 resolver = "2"

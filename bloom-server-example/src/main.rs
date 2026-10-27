@@ -1,7 +1,8 @@
 #![cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 
-use axum::{async_trait, body::Body, extract::Query, routing::get, Router};
+use async_trait::async_trait;
+use axum::{body::Body, extract::Query, routing::get, Router};
 use bloom_core::{Component, Element};
 use bloom_html::{tag::div, text, HtmlNode};
 use bloom_server_example::{hydration, partial_hydration, TokioSpawner};

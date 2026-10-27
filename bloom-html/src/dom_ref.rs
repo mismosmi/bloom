@@ -8,8 +8,11 @@ use std::{
 
 /// Represents a reference to a DOM element.
 /// Obtain this via
-/// ```ignore
-/// use_ref::<DomRef>();
+/// ```
+/// use bloom_core::use_ref;
+/// use bloom_html::DomRef;
+///
+/// let my_ref = use_ref::<DomRef>();
 /// ```
 #[derive(Debug, Default)]
 pub struct DomRef(AtomicU16);
@@ -41,12 +44,15 @@ impl DomRef {
     }
 
     /// use this method in an effect to get the actual DOM element:
-    /// ```ignore
+    /// ```
+    /// use bloom_core::{use_effect, use_ref};
+    /// use bloom_html::DomRef;
+    ///
     /// let my_ref = use_ref::<DomRef>();
     /// use_effect(my_ref, |my_ref| {
     ///     let dom_element = my_ref.get();
     ///     // do something with dom_element
-    /// })
+    /// });
     /// ```
     pub fn get(&self) -> Option<web_sys::Node> {
         HTML_ELEMENT_MAP.with(|map| {
