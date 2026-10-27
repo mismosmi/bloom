@@ -229,14 +229,20 @@ where
         .try_send(())
         .expect("Failed to send message to trigger initial render");
 
+    let mut created = false;
+
     while signal_receiver.recv().await.is_ok() {
         object_model.start().await;
         {
             let mut render_queue = RenderQueue::new();
-            render_queue.reload(
-                &mut tree_root,
-                RenderContext::new(root.clone(), None, object_model.get_context()),
-            );
+            let ctx = RenderContext::new(root.clone(), None, object_model.get_context());
+            // The first pass creates the whole tree, later passes only reload what changed
+            if created {
+                render_queue.reload(&mut tree_root, ctx);
+            } else {
+                render_queue.create(&mut tree_root, ctx);
+                created = true;
+            }
 
             while let Some(item) = render_queue.next() {
                 match item {
@@ -254,21 +260,16 @@ where
                                 render_queue.create(child, ctx.with_parent(node.clone()));
                             }
                         }
+                        // Children are created in order, so each one is inserted before the
+                        // fragment's sibling, which already exists, rather than before the next child
                         TreeNode::Fragment(children) => {
-                            let mut sibling = ctx.sibling.clone();
                             for child in children.iter_mut().rev() {
-                                render_queue.create(child, ctx.with_sibling(sibling));
-                                sibling = child.get_first_node();
+                                render_queue.create(child, ctx.clone());
                             }
                         }
                         TreeNode::Provider(value, children) => {
-                            let mut sibling = ctx.sibling.clone();
                             for child in children.iter_mut().rev() {
-                                render_queue.create(
-                                    child,
-                                    ctx.with_sibling_and_context(sibling, value.clone()),
-                                );
-                                sibling = child.get_first_node();
+                                render_queue.create(child, ctx.with_context(value.clone()));
                             }
                         }
                     },
@@ -465,7 +466,8 @@ fn update_children<N, E>(
 {
     let old_len = tree_nodes.len();
 
-    for tree_node in tree_nodes.drain(elements.len()..).rev() {
+    let kept = elements.len().min(old_len);
+    for tree_node in tree_nodes.drain(kept..).rev() {
         render_queue.remove(tree_node, ctx.parent.clone());
     }
 
@@ -577,6 +579,7 @@ mod tests {
 
     struct InnerMockObjectModel {
         created: VecDeque<Arc<MockNode>>,
+        existing: Vec<Arc<MockNode>>,
         updated: VecDeque<Arc<MockNode>>,
         removed: VecDeque<Arc<MockNode>>,
         start_signal: (Sender<()>, Receiver<()>),
@@ -587,6 +590,7 @@ mod tests {
         fn new() -> Arc<Mutex<Self>> {
             Arc::new(Mutex::new(Self {
                 created: VecDeque::new(),
+                existing: Vec::new(),
                 updated: VecDeque::new(),
                 removed: VecDeque::new(),
                 start_signal: async_channel::bounded(1),
@@ -652,10 +656,20 @@ mod tests {
             &mut self,
             node: &std::sync::Arc<Self::Node>,
             _parent: &std::sync::Arc<Self::Node>,
-            _sibling: &Option<std::sync::Arc<Self::Node>>,
+            sibling: &Option<std::sync::Arc<Self::Node>>,
         ) {
             println!("create {:?}", node);
-            self.0.lock().unwrap().created.push_back(node.clone());
+            let mut inner = self.0.lock().unwrap();
+            if let Some(sibling) = sibling {
+                assert!(
+                    inner.existing.iter().any(|node| Arc::ptr_eq(node, sibling)),
+                    "{:?} created before its sibling {:?}",
+                    node,
+                    sibling
+                );
+            }
+            inner.existing.push(node.clone());
+            inner.created.push_back(node.clone());
         }
 
         fn update(
@@ -663,7 +677,9 @@ mod tests {
             _node: &std::sync::Arc<Self::Node>,
             next: &std::sync::Arc<Self::Node>,
         ) {
-            self.0.lock().unwrap().updated.push_back(next.clone());
+            let mut inner = self.0.lock().unwrap();
+            inner.existing.push(next.clone());
+            inner.updated.push_back(next.clone());
         }
 
         fn remove(
@@ -838,6 +854,102 @@ mod tests {
             lock.assert_updated(MockNode(3));
             lock.assert_updated(MockNode(4));
             lock.assert_updated(MockNode(5));
+        }
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn render_root_node() {
+        let inner_object_model = InnerMockObjectModel::new();
+        let object_model = MockObjectModel(inner_object_model.clone());
+        let mut handle = tokio::spawn(async move {
+            let root = Arc::new(MockNode(0));
+            let element: Element<MockNode, ()> = Element::Fragment(vec![
+                Element::Node(MockNode(1), vec![Element::Node(MockNode(2), Vec::new())]),
+                Element::Node(MockNode(3), Vec::new()),
+            ]);
+            super::render_loop(root, element, TokioSpawner, object_model)
+                .await
+                .unwrap();
+        });
+
+        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+        tokio::select! {
+            _ = render_cycle => {}
+            result = &mut handle => panic!("render loop stopped: {:?}", result),
+        }
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_created(MockNode(1));
+            lock.assert_created(MockNode(2));
+            lock.assert_created(MockNode(3));
+            lock.assert_noop();
+        }
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn grow_children() {
+        #[derive(PartialEq)]
+        struct GrowingList;
+
+        #[async_trait]
+        impl Component for GrowingList {
+            type Error = ();
+            type Node = MockNode;
+            async fn render(
+                self: Arc<Self>,
+            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                let length = use_state(|| 1i32);
+
+                if *length < 3 {
+                    let length = length.clone();
+                    tokio::spawn(async move { length.update(|length| *length + 2) });
+                }
+
+                Ok(Element::Node(
+                    MockNode(0),
+                    (1..=*length)
+                        .map(|i| Element::Node(MockNode(i), Vec::new()))
+                        .collect(),
+                ))
+            }
+        }
+
+        let inner_object_model = InnerMockObjectModel::new();
+        let object_model = MockObjectModel(inner_object_model.clone());
+        let mut handle = tokio::spawn(async move {
+            let root = Arc::new(MockNode(0));
+            let element = Element::Component(Arc::new(GrowingList));
+            super::render_loop(root, element, TokioSpawner, object_model)
+                .await
+                .unwrap();
+        });
+
+        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+        render_cycle.await;
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_created(MockNode(0));
+            lock.assert_created(MockNode(1));
+            lock.assert_noop();
+        }
+
+        // Fail instead of waiting forever if the render loop panics
+        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+        tokio::select! {
+            _ = render_cycle => {}
+            result = &mut handle => panic!("render loop stopped: {:?}", result),
+        }
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_created(MockNode(2));
+            lock.assert_created(MockNode(3));
+            lock.assert_updated(MockNode(0));
+            lock.assert_updated(MockNode(1));
+            lock.assert_noop();
         }
 
         handle.abort();
