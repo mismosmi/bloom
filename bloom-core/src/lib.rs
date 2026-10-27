@@ -42,7 +42,7 @@ mod suspense;
 /// }
 ///
 /// # let html = futures_executor::block_on(bloom_ssr::render_to_string(
-/// #     App::new().build().into(),
+/// #     App::builder().build().into(),
 /// #     futures_executor::ThreadPool::new().unwrap(),
 /// # ));
 /// # assert_eq!(html, Ok("<div>HiHi</div><div>Hello</div><span>42</span>".to_string()));
@@ -58,7 +58,7 @@ mod suspense;
 ///     Ok(rsx!(<div>{name.clone()}</div>))
 /// }
 ///
-/// let greeting = Greeting::new().build();
+/// let greeting = Greeting::builder().build();
 /// ```
 pub use bloom_macro::component;
 pub use component::Component;

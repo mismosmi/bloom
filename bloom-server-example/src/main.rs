@@ -41,7 +41,7 @@ fn HomePage(name: String) -> Result<Element<HtmlNode, anyhow::Error>, anyhow::Er
 
 async fn home(query: Query<QueryParams>) -> Body {
     Body::from_stream(render_to_stream(
-        HomePage::new()
+        HomePage::builder()
             .name(query.name.clone().unwrap_or("World".to_string()))
             .build()
             .into(),

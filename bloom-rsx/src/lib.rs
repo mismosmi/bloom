@@ -8,7 +8,7 @@ use syn::{
 
 /// The core rsx macro.
 /// Transforms
-/// * `<Component prop="value" />` into `Component::new().prop("value").build().into()`
+/// * `<Component prop="value" />` into `Component::builder().prop("value").build().into()`
 /// * `<tag attribute="value" on_event={handler} />` into `tag("tag").attr("attribute", "value").on("event", handler).build().into()`
 /// * `"text"` into `"text".to_string().into()`
 #[proc_macro]
@@ -179,7 +179,7 @@ fn transform_component(
         quote!(::#generics)
     };
     quote! {
-        #tag #generics ::new() #children #attributes .build().into()
+        #tag #generics ::builder() #children #attributes .build().into()
     }
 }
 
@@ -221,7 +221,7 @@ pub fn derive_noop_builder(item: proc_macro::TokenStream) -> proc_macro::TokenSt
 
     quote! {
         impl #ident {
-            fn new() -> Self {
+            fn builder() -> Self {
                 Self
             }
 
@@ -280,7 +280,7 @@ mod tests {
             .next()
             .unwrap(),
         );
-        assert_eq!(actual.to_string(), "MyComponent :: new () . children ({ let mut children = Vec :: with_capacity (1usize) ; children . push (tag (\"div\") . attr (\"id\" , \"child\") . build () . into ()) ; children . into () }) . number_prop (123) . boolean_prop (true) . build () . into ()")
+        assert_eq!(actual.to_string(), "MyComponent :: builder () . children ({ let mut children = Vec :: with_capacity (1usize) ; children . push (tag (\"div\") . attr (\"id\" , \"child\") . build () . into ()) ; children . into () }) . number_prop (123) . boolean_prop (true) . build () . into ()")
     }
 
     #[test]
@@ -296,7 +296,7 @@ mod tests {
         );
         assert_eq!(
             actual.to_string(),
-            "MyComponent :: < i32 > :: new () . value (1) . build () . into ()"
+            "MyComponent :: < i32 > :: builder () . value (1) . build () . into ()"
         )
     }
 
@@ -311,6 +311,6 @@ mod tests {
             .next()
             .unwrap(),
         );
-        assert_eq!(actual.to_string(), "MyComponent :: new () . number_prop (123) . boolean_prop (true) . label (\"test\") . build () . into ()")
+        assert_eq!(actual.to_string(), "MyComponent :: builder () . number_prop (123) . boolean_prop (true) . label (\"test\") . build () . into ()")
     }
 }

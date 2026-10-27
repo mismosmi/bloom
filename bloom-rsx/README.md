@@ -52,7 +52,7 @@ rsx!(<MyComponent foo="bar"><div /></MyComponent>)
 ```
 becomes
 ```rust
-MyComponent::new()
+MyComponent::builder()
   .foo("bar")
   .children(vec![
     tag("div").build().into()

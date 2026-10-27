@@ -131,7 +131,7 @@ pub(crate) fn transform_component(
             #visibility struct #name;
 
             impl #name {
-                #visibility fn new() -> #name {
+                #visibility fn builder() -> #name {
                     #name
                 }
 
@@ -148,7 +148,7 @@ pub(crate) fn transform_component(
     // Option<T> props are optional and every setter accepts anything that converts into the prop type.
     quote! {
         #[derive(PartialEq, ::bloom_core::__private::bon::Builder)]
-        #[builder(crate = ::bloom_core::__private::bon, start_fn = new, on(_, into))]
+        #[builder(crate = ::bloom_core::__private::bon, on(_, into))]
         #visibility struct #name #ty_gen #where_gen {
             #(#field_idents: #field_types,)*
         }
