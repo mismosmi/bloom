@@ -40,6 +40,22 @@ This enables the consumer of the library to use their own error type, which migh
 
 A reasonable API to catch these errors (`ErrorBoundary`) is in the making.
 
+## Keyed lists
+Children are matched to the previous render by their position.
+When a list is reordered, that hands the state of one item to another and rewrites every node in place.
+Keys identify children instead, so they keep their state and native nodes and are only moved.
+
+`keyed(key, element)` wraps any element in a keyed element, and `rsx!` calls it for every tag or
+component with a `key`, e.g. `<li key={id}>` or `<Row key={id} />`. To key several elements at once,
+wrap them in a `<Fragment key={id}>` (`bloom_core::Fragment`).
+
+Any hashable value can be a key. Only its 64 bit hash (`Key`) is stored, so two different keys colliding is possible but negligibly unlikely.
+Keys only have to be unique among their siblings. As soon as one child has a key the whole list is matched by key,
+children without a key are then matched by their position among the other unkeyed children.
+A changed key always replaces the element, even outside of lists, which rebuilds components with fresh state.
+
+Renderers implement `ObjectModel::move_node` to move an existing node.
+
 ## Renderer-Agnostic
 While react is build mainly for the web (react-native being an afterthought) bloom is generally renderer agnostic.
 

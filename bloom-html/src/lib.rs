@@ -25,4 +25,6 @@ where
 pub mod prelude {
     /// The `tag`-function rsx will use to generate HtmlElements
     pub use super::tag;
+    /// The `keyed`-function rsx will use for elements with a `key`
+    pub use bloom_core::keyed;
 }
