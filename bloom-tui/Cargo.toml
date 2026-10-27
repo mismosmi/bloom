@@ -17,11 +17,11 @@ unicode-width = "0.2.2"
 futures-util = "0.3.34"
 async-channel = "2.5.0"
 tokio = { version = "1.54.1", features = ["rt"], optional = true }
-async-trait = "0.1.92"
 
 [features]
 tokio = ["dep:tokio"]
 
 [dev-dependencies]
+async-trait = "0.1.92"
 bloom-rsx = { path = "../bloom-rsx" }
 futures-executor = { version = "0.3.34", features = ["thread-pool"] }

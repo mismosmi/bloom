@@ -83,8 +83,7 @@ use std::{
     },
 };
 
-use async_trait::async_trait;
-use bloom_core::{render_loop, use_context, Component, Element};
+use bloom_core::{render_loop, use_context, Element};
 use crossterm::{
     cursor,
     event::{
@@ -238,7 +237,7 @@ where
         vec![Arc::new(Exit(Some(shared.clone()))) as Arc<dyn Any + Send + Sync>],
     );
 
-    let rendering = pin!(render_loop(root, root_element(element), spawner, model));
+    let rendering = pin!(render_loop(root, element, spawner, model));
     let events = pin!(handle_events(shared.clone(), options.exit_on_ctrl_c));
 
     match select(rendering, events).await {
@@ -247,37 +246,6 @@ where
     }
 
     take_error(&shared)
-}
-
-/// bloom-core only creates nodes below a component,
-/// so the element is wrapped in one that renders it unchanged.
-struct Root<E>(Element<TuiNode, E>);
-
-impl<E> PartialEq for Root<E> {
-    fn eq(&self, _other: &Self) -> bool {
-        // The root is never re-rendered with new props
-        true
-    }
-}
-
-#[async_trait]
-impl<E> Component for Root<E>
-where
-    E: Send + 'static,
-{
-    type Node = TuiNode;
-    type Error = E;
-
-    async fn render(self: Arc<Self>) -> Result<Element<TuiNode, E>, E> {
-        Ok(self.0.clone())
-    }
-}
-
-fn root_element<E: Send + 'static>(element: Element<TuiNode, E>) -> Element<TuiNode, E> {
-    match element {
-        Element::Component(_) => element,
-        element => Element::Component(Arc::new(Root(element))),
-    }
 }
 
 fn root_node() -> Arc<TuiNode> {
@@ -450,12 +418,7 @@ impl TestTerminal {
         });
 
         spawner
-            .spawn(render_test(
-                root,
-                root_element(element),
-                spawner.clone(),
-                model,
-            ))
+            .spawn(render_test(root, element, spawner.clone(), model))
             .expect("Failed to spawn render loop");
 
         Self { frames, shared }
