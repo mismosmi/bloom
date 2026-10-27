@@ -14,7 +14,7 @@ use crate::{hook::Hook, Element};
 /// use bloom_html::{prelude::*, HtmlNode};
 /// use bloom_rsx::rsx;
 ///
-/// #[derive(Clone, Default)]
+/// #[derive(Default)]
 /// struct Theme(&'static str);
 ///
 /// #[component]
@@ -54,16 +54,18 @@ impl Provider {
 
 pub(crate) type ContextMap = Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>;
 
+/// Read the value of the closest [Provider] above the component.
+/// All consumers share the provided value, it is never cloned.
+/// Without a provider, a default value is returned.
 pub fn use_context<T>() -> Arc<T>
 where
-    T: Clone + Default + 'static,
+    T: Default + Send + Sync + 'static,
 {
     with_async_context(|hook: Option<&Hook>| {
         if let Some(hook) = hook {
             hook.context
                 .get(&TypeId::of::<T>())
-                .and_then(|value| value.downcast_ref::<T>())
-                .map(|value| Arc::new(value.clone()))
+                .and_then(|value| value.clone().downcast::<T>().ok())
                 .unwrap_or_default()
         } else {
             Arc::new(T::default())
