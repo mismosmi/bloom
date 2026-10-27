@@ -26,5 +26,6 @@ fn App() -> Result<Element<HtmlNode, ()>, ()> {
 }
 ```
 
-The macro generates the props struct, a builder that accepts anything that converts into the prop types and the `Component` implementation.
-Leaving out a prop is a compile-time error.
+The macro generates the props struct, a [bon](https://docs.rs/bon) builder that accepts anything that converts into the prop types and the `Component` implementation.
+Props of type `Option<T>` are optional, leaving out any other prop is a compile-time error.
+Crates using the macro don't need to depend on `bon` themselves.

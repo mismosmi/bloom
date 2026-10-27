@@ -1,9 +1,7 @@
 use core::panic;
 
-use quote::{format_ident, quote};
-use syn::{
-    AngleBracketedGenericArguments, GenericArgument, GenericParam, ItemFn, PathArguments, TypePath,
-};
+use quote::quote;
+use syn::{AngleBracketedGenericArguments, GenericArgument, ItemFn, PathArguments, TypePath};
 
 #[rustfmt::skip]
 const RETURN_TYPE_ERROR_MSG: &str =
@@ -146,89 +144,13 @@ pub(crate) fn transform_component(
         };
     }
 
-    // The builder tracks which props have been set in its type parameters,
-    // so that build() is only available once every prop has been provided.
-    let builder = format_ident!("{}Builder", name);
-    let states: Vec<_> = (0..field_idents.len())
-        .map(|index| format_ident!("__BloomProp{}", index))
-        .collect();
-    let user_params: Vec<_> = generics.params.iter().collect();
-    let user_args: Vec<_> = generics
-        .params
-        .iter()
-        .map(|param| match param {
-            GenericParam::Type(param) => {
-                let ident = &param.ident;
-                quote!(#ident)
-            }
-            GenericParam::Lifetime(param) => {
-                let lifetime = &param.lifetime;
-                quote!(#lifetime)
-            }
-            GenericParam::Const(param) => {
-                let ident = &param.ident;
-                quote!(#ident)
-            }
-        })
-        .collect();
-
-    let setters = field_idents.iter().zip(&field_types).enumerate().map(|(index, (ident, ty))| {
-        let other_states = states
-            .iter()
-            .enumerate()
-            .filter(|(other, _)| *other != index)
-            .map(|(_, state)| state);
-        let before = states.iter().enumerate().map(|(other, state)| {
-            if other == index { quote!(()) } else { quote!(#state) }
-        });
-        let after = states.iter().enumerate().map(|(other, state)| {
-            if other == index { quote!(#ty) } else { quote!(#state) }
-        });
-        let values = field_idents.iter().enumerate().map(|(other, field)| {
-            if other == index { quote!(#field: value.into()) } else { quote!(#field: self.#field) }
-        });
-        quote! {
-            impl<#(#user_params,)* #(#other_states),*> #builder<#(#user_args,)* #(#before),*> #where_gen {
-                #visibility fn #ident(self, value: impl Into<#ty>) -> #builder<#(#user_args,)* #(#after),*> {
-                    #builder {
-                        #(#values,)*
-                        __bloom_component: ::core::marker::PhantomData,
-                    }
-                }
-            }
-        }
-    });
-    let unset = states.iter().map(|_| quote!(()));
-
+    // bon generates a builder that only offers build() once every required prop is set.
+    // Option<T> props are optional and every setter accepts anything that converts into the prop type.
     quote! {
-        #[derive(PartialEq)]
+        #[derive(PartialEq, ::bloom_core::__private::bon::Builder)]
+        #[builder(crate = ::bloom_core::__private::bon, start_fn = new, on(_, into))]
         #visibility struct #name #ty_gen #where_gen {
             #(#field_idents: #field_types,)*
-        }
-
-        #[doc(hidden)]
-        #visibility struct #builder<#(#user_params,)* #(#states),*> #where_gen {
-            #(#field_idents: #states,)*
-            __bloom_component: ::core::marker::PhantomData<fn() -> #name #ty_gen>,
-        }
-
-        impl #impl_gen #name #ty_gen #where_gen {
-            #visibility fn new() -> #builder<#(#user_args,)* #(#unset),*> {
-                #builder {
-                    #(#field_idents: (),)*
-                    __bloom_component: ::core::marker::PhantomData,
-                }
-            }
-        }
-
-        #(#setters)*
-
-        impl #impl_gen #builder<#(#user_args,)* #(#field_types),*> #where_gen {
-            #visibility fn build(self) -> #name #ty_gen {
-                #name {
-                    #(#field_idents: self.#field_idents,)*
-                }
-            }
         }
 
         #component_impl

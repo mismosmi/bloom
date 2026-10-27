@@ -12,16 +12,17 @@ mod state;
 mod suspense;
 
 /// Turns a function into a component.
-/// The function arguments become the props of the component and the
-/// generated builder accepts anything that converts into the prop type.
+/// The function arguments become the props of the component.
+/// Props of type `Option<T>` are optional, all other props are required.
+/// The generated builder (from [bon](https://docs.rs/bon)) accepts anything that converts into the prop type.
 /// ```
 /// use bloom_core::{component, Element};
 /// use bloom_html::{prelude::*, HtmlNode};
 /// use bloom_rsx::rsx;
 ///
 /// #[component]
-/// pub fn Greeting(name: String, times: usize) -> Result<Element<HtmlNode, ()>, ()> {
-///     Ok(rsx!(<div>{name.repeat(*times)}</div>))
+/// pub fn Greeting(name: String, times: Option<usize>) -> Result<Element<HtmlNode, ()>, ()> {
+///     Ok(rsx!(<div>{name.repeat(times.unwrap_or(1))}</div>))
 /// }
 ///
 /// #[component]
@@ -35,6 +36,7 @@ mod suspense;
 /// fn App() -> Result<Element<HtmlNode, ()>, ()> {
 ///     Ok(rsx!(
 ///         <Greeting times=2usize name="Hi" />
+///         <Greeting name="Hello" />
 ///         <Labelled<i32> label=42 />
 ///     ))
 /// }
@@ -43,10 +45,10 @@ mod suspense;
 /// #     App::new().build().into(),
 /// #     futures_executor::ThreadPool::new().unwrap(),
 /// # ));
-/// # assert_eq!(html, Ok("<div>HiHi</div><span>42</span>".to_string()));
+/// # assert_eq!(html, Ok("<div>HiHi</div><div>Hello</div><span>42</span>".to_string()));
 /// ```
 ///
-/// Leaving out a prop is a compile-time error:
+/// Leaving out a required prop is a compile-time error:
 /// ```compile_fail
 /// # use bloom_core::{component, Element};
 /// # use bloom_html::{prelude::*, HtmlNode};
@@ -72,4 +74,5 @@ pub use state::use_state;
 #[doc(hidden)]
 pub mod __private {
     pub use async_trait::async_trait;
+    pub use bon;
 }

@@ -16,6 +16,7 @@ async-context = { version = "0.1.0", path = "../async-context" }
 async-channel = "2.5.0"
 pin-project = "1.1.13"
 bloom-macro = { version = "0.1.0", path = "../bloom-macro" }
+bon = "3.10.3"
 
 [dev-dependencies]
 bloom-html = { path = "../bloom-html" }
