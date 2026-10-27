@@ -25,13 +25,11 @@ impl<E> Stream for StringStream<E> {
                     HtmlNode::Element(element) => {
                         self.stack
                             .push((Some(element.tag_name().to_string()), children));
-                        return Poll::Ready(Some(Ok(serialize_node_open(&element))));
+                        Poll::Ready(Some(Ok(serialize_node_open(&element))))
                     }
-                    HtmlNode::Text(text) => {
-                        return Poll::Ready(Some(Ok(text)));
-                    }
+                    HtmlNode::Text(text) => Poll::Ready(Some(Ok(text))),
                     HtmlNode::Comment(comment) => {
-                        return Poll::Ready(Some(Ok(format!("<!--{}-->", comment.text()))))
+                        Poll::Ready(Some(Ok(format!("<!--{}-->", comment.text()))))
                     }
                 },
                 Poll::Ready(None) => {

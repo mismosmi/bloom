@@ -55,11 +55,7 @@ impl DomRef {
     /// });
     /// ```
     pub fn get(&self) -> Option<web_sys::Node> {
-        HTML_ELEMENT_MAP.with(|map| {
-            map.borrow()
-                .get(&self.0.load(Ordering::Relaxed))
-                .map(|element| element.clone())
-        })
+        HTML_ELEMENT_MAP.with(|map| map.borrow().get(&self.0.load(Ordering::Relaxed)).cloned())
     }
 }
 

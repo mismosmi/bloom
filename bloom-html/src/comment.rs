@@ -17,6 +17,7 @@ impl HtmlComment {
     /// let comment = HtmlComment::new().text("foo").build();
     /// assert_eq!(comment.text(), "foo");
     /// ```
+    #[allow(clippy::new_ret_no_self)]
     pub fn new() -> HtmlCommentBuilder<()> {
         HtmlCommentBuilder {
             text: (),

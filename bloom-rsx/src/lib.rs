@@ -1,8 +1,10 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use rstml::node::{Node, NodeAttribute, NodeBlock, NodeName};
+use rstml::node::{atoms::TagGenerics, Node, NodeAttribute, NodeBlock, NodeName};
 use rstml::parse2;
-use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Expr, ExprPath, Fields};
+use syn::{
+    parse_macro_input, Data, DataStruct, DeriveInput, Expr, ExprBlock, ExprPath, Fields, Stmt,
+};
 
 /// The core rsx macro.
 /// Transforms
@@ -20,6 +22,7 @@ fn transform_node(node: Node) -> TokenStream {
     match node {
         Node::Element(element) => {
             let name = element.open_tag.name;
+            let generics = element.open_tag.generics;
             let attributes = element.open_tag.attributes;
             let children = element.children;
             match &name {
@@ -35,7 +38,7 @@ fn transform_node(node: Node) -> TokenStream {
                     if is_tag {
                         transform_tag(&name, attributes, children)
                     } else {
-                        transform_component(path, attributes, children)
+                        transform_component(path, &generics, attributes, children)
                     }
                 }
                 NodeName::Block(_) | NodeName::Punctuated(_) => {
@@ -64,6 +67,24 @@ fn transform_node(node: Node) -> TokenStream {
     }
 }
 
+/// `attr={value}` is parsed as a block, unwrap it so the generated code has no unnecessary braces.
+fn attribute_value(value: &Expr) -> &Expr {
+    if let Expr::Block(ExprBlock {
+        attrs,
+        label,
+        block,
+        ..
+    }) = value
+    {
+        if let ([], None, [Stmt::Expr(expr, None)]) =
+            (attrs.as_slice(), label, block.stmts.as_slice())
+        {
+            return expr;
+        }
+    }
+    value
+}
+
 fn transform_attributes(attributes: Vec<NodeAttribute>) -> TokenStream {
     let mut attrs = TokenStream::new();
     attributes
@@ -73,16 +94,18 @@ fn transform_attributes(attributes: Vec<NodeAttribute>) -> TokenStream {
                 let name = attribute.key.to_string();
 
                 if name == "ref" {
-                    let _value: &Expr = attribute.value().expect("Refs must be Arc<DomRef>");
+                    let _value =
+                        attribute_value(attribute.value().expect("Refs must be Arc<DomRef>"));
                     quote! {
                         .dom_ref(#_value)
                     }
                 } else if let Some(event) = name.strip_prefix("on_") {
-                    let _value: &Expr = attribute.value().expect("Callbacks must be functions");
+                    let _value =
+                        attribute_value(attribute.value().expect("Callbacks must be functions"));
                     quote! {
                         .on(#event, #_value)
                     }
-                } else if let Some(_value) = attribute.value() {
+                } else if let Some(_value) = attribute.value().map(attribute_value) {
                     quote! {
                         .attr(#name, #_value)
                     }
@@ -106,7 +129,7 @@ fn transform_props(attributes: Vec<NodeAttribute>) -> TokenStream {
             NodeAttribute::Attribute(attribute) => {
                 let name = &attribute.key;
 
-                if let Some(value) = attribute.value() {
+                if let Some(value) = attribute.value().map(attribute_value) {
                     quote! {
                         .#name(#value)
                     }
@@ -137,6 +160,7 @@ fn transform_children(nodes: Vec<Node>) -> proc_macro2::TokenStream {
 
 fn transform_component(
     tag: &ExprPath,
+    generics: &TagGenerics,
     attributes: Vec<NodeAttribute>,
     children: Vec<Node>,
 ) -> TokenStream {
@@ -149,8 +173,13 @@ fn transform_component(
             .children(#children)
         }
     };
+    let generics = if generics.args.is_empty() {
+        TokenStream::new()
+    } else {
+        quote!(::#generics)
+    };
     quote! {
-        <#tag>::new() #children #attributes .build().into()
+        #tag #generics ::new() #children #attributes .build().into()
     }
 }
 
@@ -214,7 +243,7 @@ mod tests {
             rstml::parse2(quote! { "hello world" })
                 .unwrap()
                 .into_iter()
-                .nth(0)
+                .next()
                 .unwrap(),
         );
         assert_eq!(
@@ -229,12 +258,12 @@ mod tests {
             rstml::parse2(quote! { <div ref={my_ref}></div> })
                 .unwrap()
                 .into_iter()
-                .nth(0)
+                .next()
                 .unwrap(),
         );
         assert_eq!(
             actual.to_string(),
-            "tag (\"div\") . dom_ref ({ my_ref }) . build () . into ()"
+            "tag (\"div\") . dom_ref (my_ref) . build () . into ()"
         );
     }
 
@@ -248,10 +277,27 @@ mod tests {
             })
             .unwrap()
             .into_iter()
-            .nth(0)
+            .next()
             .unwrap(),
         );
-        assert_eq!(actual.to_string(), "< MyComponent > :: new () . children ({ let mut children = Vec :: with_capacity (1usize) ; children . push (tag (\"div\") . attr (\"id\" , \"child\") . build () . into ()) ; children . into () }) . number_prop (123) . boolean_prop (true) . build () . into ()")
+        assert_eq!(actual.to_string(), "MyComponent :: new () . children ({ let mut children = Vec :: with_capacity (1usize) ; children . push (tag (\"div\") . attr (\"id\" , \"child\") . build () . into ()) ; children . into () }) . number_prop (123) . boolean_prop (true) . build () . into ()")
+    }
+
+    #[test]
+    fn render_generic_component() {
+        let actual = super::transform_node(
+            rstml::parse2(quote! {
+                <MyComponent<i32> value=1 />
+            })
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap(),
+        );
+        assert_eq!(
+            actual.to_string(),
+            "MyComponent :: < i32 > :: new () . value (1) . build () . into ()"
+        )
     }
 
     #[test]
@@ -262,9 +308,9 @@ mod tests {
             })
             .unwrap()
             .into_iter()
-            .nth(0)
+            .next()
             .unwrap(),
         );
-        assert_eq!(actual.to_string(), "< MyComponent > :: new () . number_prop (123) . boolean_prop (true) . label (\"test\") . build () . into ()")
+        assert_eq!(actual.to_string(), "MyComponent :: new () . number_prop (123) . boolean_prop (true) . label (\"test\") . build () . into ()")
     }
 }

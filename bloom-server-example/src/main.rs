@@ -1,13 +1,9 @@
 #![cfg(not(target_arch = "wasm32"))]
-use std::sync::Arc;
-
-use async_trait::async_trait;
 use axum::{body::Body, extract::Query, routing::get, Router};
-use bloom_core::{Component, Element};
+use bloom_core::{component, Element};
 use bloom_html::{tag::div, text, HtmlNode};
 use bloom_server_example::{hydration, partial_hydration, TokioSpawner};
 use bloom_ssr::render_to_stream;
-use builder_pattern::Builder;
 use serde::Deserialize;
 
 #[tokio::main]
@@ -36,21 +32,11 @@ struct QueryParams {
     name: Option<String>,
 }
 
-#[derive(PartialEq, Builder)]
-struct HomePage {
-    name: String,
-}
-
-#[async_trait]
-impl Component for HomePage {
-    type Error = anyhow::Error;
-    type Node = HtmlNode;
-
-    async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-        Ok(div()
-            .build()
-            .children(vec![text(format!("Hello, {}!", self.name))]))
-    }
+#[component]
+fn HomePage(name: String) -> Result<Element<HtmlNode, anyhow::Error>, anyhow::Error> {
+    Ok(div()
+        .build()
+        .children(vec![text(format!("Hello, {}!", name))]))
 }
 
 async fn home(query: Query<QueryParams>) -> Body {

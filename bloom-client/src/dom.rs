@@ -13,7 +13,6 @@ use bloom_html::HtmlNode;
 use futures_util::Future;
 use weak_table::PtrWeakKeyHashMap;
 use web_sys::{
-    console,
     wasm_bindgen::{closure::Closure, JsCast},
     window, Comment, Element, Node, Text,
 };
@@ -213,11 +212,9 @@ impl ObjectModel for Dom {
         parent: &std::sync::Arc<Self::Node>,
         sibling: &Option<std::sync::Arc<Self::Node>>,
     ) {
-        console::log_1(&format!("Create {:?}", node).into());
         let parent_state = self.nodes.get(parent).expect("Parent not found");
 
         if let Some(hydration_state) = &mut self.hydration_state {
-            console::log_1(&"Hydrate".into());
             let hydration_index = hydration_state.get(parent).cloned().unwrap_or(0);
 
             let existing_node = parent_state
@@ -234,7 +231,7 @@ impl ObjectModel for Dom {
 
         let sibling_node = sibling
             .as_ref()
-            .map(|sibling| self.nodes.get(&sibling).expect("Sibling not found").node());
+            .map(|sibling| self.nodes.get(sibling).expect("Sibling not found").node());
 
         let state = NodeState::create(node);
 
@@ -262,14 +259,6 @@ impl ObjectModel for Dom {
             HtmlNode::Element(element) => {
                 if let Some(current_element) = current_node.dyn_ref::<web_sys::HtmlElement>() {
                     if current_element.tag_name().to_lowercase() != element.tag_name() {
-                        console::log_1(
-                            &format!(
-                                "Replace tag {} -> {}",
-                                current_element.tag_name(),
-                                element.tag_name()
-                            )
-                            .into(),
-                        );
                         let new_state = NodeState::create(next);
 
                         current_element
@@ -280,7 +269,6 @@ impl ObjectModel for Dom {
 
                         self.nodes.insert(next.clone(), new_state);
                     } else {
-                        console::log_1(&format!("Update tag {}", element.tag_name()).into());
                         for (key, value) in element.attributes() {
                             current_element
                                 .set_attribute(key, value)
@@ -298,10 +286,8 @@ impl ObjectModel for Dom {
 
                         self.nodes
                             .insert(next.clone(), NodeState::hydrate(node, current_node));
-                        console::log_1(&format!("Updated tag {}", element.tag_name()).into());
                     }
                 } else {
-                    console::log_1(&format!("Replace {:?} -> {:?}", current_node, next).into());
                     let new_state = NodeState::create(next);
 
                     current_node
@@ -315,14 +301,12 @@ impl ObjectModel for Dom {
             }
             HtmlNode::Text(text) => {
                 if let Some(current_text_node) = current_node.dyn_ref::<Text>() {
-                    console::log_1(&format!("Update text {}", text).into());
                     if current_text_node.text_content().as_ref() != Some(text) {
                         current_text_node.set_text_content(Some(text));
                     }
                     self.nodes
                         .insert(next.clone(), NodeState::hydrate(node, current_node));
                 } else {
-                    console::log_1(&format!("Replace text {}", text).into());
                     let new_state = NodeState::create(next);
 
                     current_node
@@ -357,7 +341,6 @@ impl ObjectModel for Dom {
     }
 
     fn finalize(&mut self) -> impl Future<Output = ()> {
-        console::log_1(&"Finalize".into());
         self.hydration_state = None;
         let ready = Arc::new(AtomicBool::new(false));
 

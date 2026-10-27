@@ -5,12 +5,12 @@ use async_context::with_async_context_mut;
 
 use crate::{hook::Hook, Element};
 
+type StateUpdateFn = Box<
+    dyn FnOnce(Option<Arc<dyn Any + Send + Sync>>) -> Arc<dyn Any + Send + Sync> + Send + 'static,
+>;
+
 pub(crate) struct StateUpdate {
-    update: Box<
-        dyn FnOnce(Option<Arc<dyn Any + Send + Sync>>) -> Arc<dyn Any + Send + Sync>
-            + Send
-            + 'static,
-    >,
+    update: StateUpdateFn,
     index: u16,
 }
 

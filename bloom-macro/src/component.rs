@@ -1,7 +1,9 @@
 use core::panic;
 
-use quote::quote;
-use syn::{AngleBracketedGenericArguments, GenericArgument, ItemFn, PathArguments, TypePath};
+use quote::{format_ident, quote};
+use syn::{
+    AngleBracketedGenericArguments, GenericArgument, GenericParam, ItemFn, PathArguments, TypePath,
+};
 
 #[rustfmt::skip]
 const RETURN_TYPE_ERROR_MSG: &str =
@@ -13,7 +15,8 @@ pub(crate) fn transform_component(
 ) -> proc_macro2::TokenStream {
     let name = item.sig.ident;
 
-    let mut fields = Vec::new();
+    let mut field_idents = Vec::new();
+    let mut field_types = Vec::new();
     let mut field_aliases = Vec::new();
 
     for field in item.sig.inputs.iter() {
@@ -29,15 +32,12 @@ pub(crate) fn transform_component(
             panic!("Expected ident")
         };
 
-        let ty = arg.ty.as_ref();
-
         field_aliases.push(quote! {
             let #ident = &self.#ident;
         });
 
-        fields.push(quote! {
-            #ident: #ty,
-        });
+        field_idents.push(ident.ident.clone());
+        field_types.push(arg.ty.as_ref().clone());
     }
 
     let generics = item.sig.generics;
@@ -46,7 +46,7 @@ pub(crate) fn transform_component(
     let body = item.block;
     let return_type = item.sig.output;
 
-    let (node_type, error_type) = match return_type {
+    let (node_type, error_type) = match return_type.clone() {
         syn::ReturnType::Default => {
             panic!("{}", RETURN_TYPE_ERROR_MSG)
         }
@@ -55,7 +55,7 @@ pub(crate) fn transform_component(
                 let result = path
                     .segments
                     .into_iter()
-                    .last()
+                    .next_back()
                     .expect(RETURN_TYPE_ERROR_MSG);
 
                 let (ok_type, err_type) =
@@ -85,7 +85,7 @@ pub(crate) fn transform_component(
                         .path
                         .segments
                         .into_iter()
-                        .last()
+                        .next_back()
                         .expect(RETURN_TYPE_ERROR_MSG)
                         .arguments
                     {
@@ -113,8 +113,22 @@ pub(crate) fn transform_component(
         },
     };
 
-    if fields.is_empty() {
-        quote! {
+    let component_impl = quote! {
+        #[bloom_core::__private::async_trait]
+        impl #impl_gen bloom_core::Component for #name #ty_gen #where_gen {
+            type Node = #node_type;
+            type Error = #error_type;
+
+            async fn render(self: std::sync::Arc<Self>) #return_type {
+                #(#field_aliases)*
+
+                #body
+            }
+        }
+    };
+
+    if field_idents.is_empty() {
+        return quote! {
             #[derive(PartialEq)]
             #visibility struct #name;
 
@@ -128,37 +142,96 @@ pub(crate) fn transform_component(
                 }
             }
 
-            #[async_trait::async_trait]
-            #visibility impl #impl_gen bloom_core::Component for #name #ty_gen #where_gen {
-                type Node = #node_type;
-                type Error = #error_type;
+            #component_impl
+        };
+    }
 
-                async fn render(self: std::sync::Arc<Self>) -> Result<bloom_core::Element<Self::Node, Self::Error>, Self::Error> {
-                    #(#field_aliases)*
-
-                    #body
-                }
+    // The builder tracks which props have been set in its type parameters,
+    // so that build() is only available once every prop has been provided.
+    let builder = format_ident!("{}Builder", name);
+    let states: Vec<_> = (0..field_idents.len())
+        .map(|index| format_ident!("__BloomProp{}", index))
+        .collect();
+    let user_params: Vec<_> = generics.params.iter().collect();
+    let user_args: Vec<_> = generics
+        .params
+        .iter()
+        .map(|param| match param {
+            GenericParam::Type(param) => {
+                let ident = &param.ident;
+                quote!(#ident)
             }
-        }
-    } else {
+            GenericParam::Lifetime(param) => {
+                let lifetime = &param.lifetime;
+                quote!(#lifetime)
+            }
+            GenericParam::Const(param) => {
+                let ident = &param.ident;
+                quote!(#ident)
+            }
+        })
+        .collect();
+
+    let setters = field_idents.iter().zip(&field_types).enumerate().map(|(index, (ident, ty))| {
+        let other_states = states
+            .iter()
+            .enumerate()
+            .filter(|(other, _)| *other != index)
+            .map(|(_, state)| state);
+        let before = states.iter().enumerate().map(|(other, state)| {
+            if other == index { quote!(()) } else { quote!(#state) }
+        });
+        let after = states.iter().enumerate().map(|(other, state)| {
+            if other == index { quote!(#ty) } else { quote!(#state) }
+        });
+        let values = field_idents.iter().enumerate().map(|(other, field)| {
+            if other == index { quote!(#field: value.into()) } else { quote!(#field: self.#field) }
+        });
         quote! {
-            #[derive(PartialEq, builder_pattern::Builder)]
-            #visibility struct #name #ty_gen #where_gen {
-                #(#[into] #fields)*
-            }
-
-            #[async_trait::async_trait]
-            #visibility impl #impl_gen bloom_core::Component for #name #ty_gen #where_gen {
-                type Node = #node_type;
-                type Error = #error_type;
-
-                async fn render(self: std::sync::Arc<Self>) -> Result<bloom_core::Element<Self::Node, Self::Error>, Self::Error> {
-                    #(#field_aliases)*
-
-                    #body
+            impl<#(#user_params,)* #(#other_states),*> #builder<#(#user_args,)* #(#before),*> #where_gen {
+                #visibility fn #ident(self, value: impl Into<#ty>) -> #builder<#(#user_args,)* #(#after),*> {
+                    #builder {
+                        #(#values,)*
+                        __bloom_component: ::core::marker::PhantomData,
+                    }
                 }
             }
         }
+    });
+    let unset = states.iter().map(|_| quote!(()));
+
+    quote! {
+        #[derive(PartialEq)]
+        #visibility struct #name #ty_gen #where_gen {
+            #(#field_idents: #field_types,)*
+        }
+
+        #[doc(hidden)]
+        #visibility struct #builder<#(#user_params,)* #(#states),*> #where_gen {
+            #(#field_idents: #states,)*
+            __bloom_component: ::core::marker::PhantomData<fn() -> #name #ty_gen>,
+        }
+
+        impl #impl_gen #name #ty_gen #where_gen {
+            #visibility fn new() -> #builder<#(#user_args,)* #(#unset),*> {
+                #builder {
+                    #(#field_idents: (),)*
+                    __bloom_component: ::core::marker::PhantomData,
+                }
+            }
+        }
+
+        #(#setters)*
+
+        impl #impl_gen #builder<#(#user_args,)* #(#field_types),*> #where_gen {
+            #visibility fn build(self) -> #name #ty_gen {
+                #name {
+                    #(#field_idents: self.#field_idents,)*
+                }
+            }
+        }
+
+        #component_impl
     }
 }
 

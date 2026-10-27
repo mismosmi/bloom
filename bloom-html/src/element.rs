@@ -29,6 +29,7 @@ impl HtmlElement {
     /// let div = HtmlElement::new().tag_name("div").build();
     /// assert_eq!(div.tag_name(), "div");
     /// ```
+    #[allow(clippy::new_ret_no_self)]
     pub fn new() -> HtmlElementBuilder<()> {
         HtmlElementBuilder {
             tag_name: (),
@@ -39,7 +40,7 @@ impl HtmlElement {
     }
 
     pub fn tag_name(&self) -> &str {
-        &self.tag_name
+        self.tag_name
     }
 
     /// get a map of all the attributes:

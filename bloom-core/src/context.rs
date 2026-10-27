@@ -8,6 +8,28 @@ use async_context::with_async_context;
 
 use crate::{hook::Hook, Element};
 
+/// Provides a value to all components below it, which can read it with [use_context].
+/// ```
+/// use bloom_core::{component, use_context, Element, Provider};
+/// use bloom_html::{prelude::*, HtmlNode};
+/// use bloom_rsx::rsx;
+///
+/// #[derive(Clone, Default)]
+/// struct Theme(&'static str);
+///
+/// #[component]
+/// fn Themed() -> Result<Element<HtmlNode, ()>, ()> {
+///     let theme = use_context::<Theme>();
+///     Ok(rsx!(<div>{theme.0}</div>))
+/// }
+///
+/// let app: Element<HtmlNode, ()> = Provider::new(Theme("dark")).children(vec![rsx!(<Themed />)]);
+/// # let html = futures_executor::block_on(bloom_ssr::render_to_string(
+/// #     app,
+/// #     futures_executor::ThreadPool::new().unwrap(),
+/// # ));
+/// # assert_eq!(html, Ok("<div>dark</div>".to_string()));
+/// ```
 pub struct Provider {
     value: Arc<dyn Any + Send + Sync>,
 }
@@ -40,9 +62,9 @@ where
         if let Some(hook) = hook {
             hook.context
                 .get(&TypeId::of::<T>())
-                .and_then(|value| value.downcast_ref::<Arc<T>>())
-                .cloned()
-                .unwrap_or(Arc::new(T::default()))
+                .and_then(|value| value.downcast_ref::<T>())
+                .map(|value| Arc::new(value.clone()))
+                .unwrap_or_default()
         } else {
             Arc::new(T::default())
         }
