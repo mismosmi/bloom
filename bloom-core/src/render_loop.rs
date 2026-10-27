@@ -465,7 +465,8 @@ fn update_children<N, E>(
 {
     let old_len = tree_nodes.len();
 
-    for tree_node in tree_nodes.drain(elements.len()..).rev() {
+    let kept = elements.len().min(old_len);
+    for tree_node in tree_nodes.drain(kept..).rev() {
         render_queue.remove(tree_node, ctx.parent.clone());
     }
 
@@ -838,6 +839,67 @@ mod tests {
             lock.assert_updated(MockNode(3));
             lock.assert_updated(MockNode(4));
             lock.assert_updated(MockNode(5));
+        }
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn grow_children() {
+        #[derive(PartialEq)]
+        struct GrowingList;
+
+        #[async_trait]
+        impl Component for GrowingList {
+            type Error = ();
+            type Node = MockNode;
+            async fn render(
+                self: Arc<Self>,
+            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                let length = use_state(|| 1i32);
+
+                if *length < 3 {
+                    let length = length.clone();
+                    tokio::spawn(async move { length.update(|length| *length + 2) });
+                }
+
+                Ok(Element::Node(
+                    MockNode(0),
+                    (1..=*length)
+                        .map(|i| Element::Node(MockNode(i), Vec::new()))
+                        .collect(),
+                ))
+            }
+        }
+
+        let inner_object_model = InnerMockObjectModel::new();
+        let object_model = MockObjectModel(inner_object_model.clone());
+        let handle = tokio::spawn(async move {
+            let root = Arc::new(MockNode(0));
+            let element = Element::Component(Arc::new(GrowingList));
+            super::render_loop(root, element, TokioSpawner, object_model)
+                .await
+                .unwrap();
+        });
+
+        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+        render_cycle.await;
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_created(MockNode(0));
+            lock.assert_created(MockNode(1));
+            lock.assert_noop();
+        }
+
+        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+        render_cycle.await;
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_created(MockNode(2));
+            lock.assert_created(MockNode(3));
+            lock.assert_updated(MockNode(0));
+            lock.assert_updated(MockNode(1));
+            lock.assert_noop();
         }
 
         handle.abort();
