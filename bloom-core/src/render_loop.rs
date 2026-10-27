@@ -287,6 +287,7 @@ where
                                         RunOrSuspendResult::Done((result, hook)) => {
                                             render_queue
                                                 .queue_effects(&component.component, hook.effects);
+                                            component.state = hook.state;
                                             component.refs = hook.refs;
                                             if let Some(ref mut child) = component.child {
                                                 render_queue.update(child.as_mut(), result?, ctx);
@@ -531,6 +532,7 @@ where
                 }
             }
             render_queue.queue_effects(&tree_component.component, hook.effects);
+            tree_component.state = hook.state;
             tree_component.refs = hook.refs;
         }
         RunOrSuspendResult::Suspend(render_future) => {
@@ -792,6 +794,72 @@ mod tests {
             .lock()
             .unwrap()
             .assert_updated(MockNode(1));
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn state_keeps_initial_value() {
+        #[derive(PartialEq)]
+        struct Child {
+            value: i32,
+        }
+
+        #[async_trait]
+        impl Component for Child {
+            type Error = ();
+            type Node = MockNode;
+            async fn render(
+                self: Arc<Self>,
+            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                // The initial value is only built once, later props don't change it
+                let first_value = use_state(|| self.value);
+                Ok(Element::Node(MockNode(*first_value), Vec::new()))
+            }
+        }
+
+        #[derive(PartialEq)]
+        struct Parent;
+
+        #[async_trait]
+        impl Component for Parent {
+            type Error = ();
+            type Node = MockNode;
+            async fn render(
+                self: Arc<Self>,
+            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                let counter = use_state(|| 0i32);
+                if *counter == 0 {
+                    counter.update(|count| *count + 1);
+                }
+                Ok(Element::Component(Arc::new(Child { value: *counter })))
+            }
+        }
+
+        let inner_object_model = InnerMockObjectModel::new();
+        let object_model = MockObjectModel(inner_object_model.clone());
+        let handle = tokio::spawn(async move {
+            let root = Arc::new(MockNode(0));
+            let element = Element::Component(Arc::new(Parent));
+            super::render_loop(root, element, TokioSpawner, object_model)
+                .await
+                .unwrap();
+        });
+
+        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+        render_cycle.await;
+        inner_object_model
+            .lock()
+            .unwrap()
+            .assert_created(MockNode(0));
+
+        let render_cycle = inner_object_model.lock().unwrap().render_cycle();
+        render_cycle.await;
+        {
+            let mut lock = inner_object_model.lock().unwrap();
+            lock.assert_updated(MockNode(0));
+            lock.assert_noop();
+        }
 
         handle.abort();
     }
