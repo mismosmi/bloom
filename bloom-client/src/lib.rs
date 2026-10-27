@@ -89,3 +89,44 @@ where
         }
     });
 }
+
+#[cfg(test)]
+#[cfg(target_arch = "wasm32")]
+mod tests {
+    use bloom_core::Element;
+    use bloom_html::{prelude::*, HtmlNode};
+    use bloom_rsx::rsx;
+    use wasm_bindgen_futures::JsFuture;
+    use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
+    use web_sys::{js_sys::Promise, wasm_bindgen::JsCast, window, HtmlElement};
+
+    use super::render;
+
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    async fn next_frame() {
+        let frame = Promise::new(&mut |resolve, _| {
+            window().unwrap().request_animation_frame(&resolve).unwrap();
+        });
+        JsFuture::from(frame).await.unwrap();
+    }
+
+    #[wasm_bindgen_test]
+    async fn render_root_node() {
+        let root: HtmlElement = window()
+            .unwrap()
+            .document()
+            .unwrap()
+            .create_element("div")
+            .unwrap()
+            .dyn_into()
+            .unwrap();
+        let element: Element<HtmlNode, ()> = rsx!(<span id="a">"hi"</span>"!");
+
+        render(root.clone(), element);
+        next_frame().await;
+        next_frame().await;
+
+        assert_eq!(root.inner_html(), "<span id=\"a\">hi</span>!");
+    }
+}

@@ -381,9 +381,9 @@ mod tests {
         let mut dom = Dom::new();
 
         let dom_root: web_sys::Node = document().create_element("div").unwrap().into();
-        let root = Arc::new(div().into());
+        let root = Arc::new(div().build().into());
         dom.register(&root, dom_root.clone());
-        let node = Arc::new(div().into());
+        let node = Arc::new(div().build().into());
         dom.create(&node, &root, &None);
         let text = Arc::new(HtmlNode::text("0".to_string()));
         dom.create(&text, &node, &None);
@@ -393,7 +393,7 @@ mod tests {
         let dom_node = dom_root.child_nodes().item(0).unwrap();
         assert_eq!(dom_node.text_content().unwrap(), "0");
 
-        let next = Arc::new(div().into());
+        let next = Arc::new(div().build().into());
         dom.update(&node, &next);
         let next_text = Arc::new(HtmlNode::text("1".to_string()));
         dom.update(&text, &next_text);
