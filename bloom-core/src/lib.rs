@@ -1,3 +1,4 @@
+mod commit;
 mod component;
 mod context;
 mod effect;
@@ -6,8 +7,8 @@ mod fragment;
 mod hook;
 mod key;
 mod object_ref;
+mod render_context;
 mod render_loop;
-mod render_queue;
 mod render_stream;
 mod result;
 mod state;
