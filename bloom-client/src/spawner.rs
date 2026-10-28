@@ -1,5 +1,6 @@
 use futures_util::task::Spawn;
 
+#[derive(Clone)]
 pub(crate) struct WasmSpawner;
 
 impl Spawn for WasmSpawner {
