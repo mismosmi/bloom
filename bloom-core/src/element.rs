@@ -24,6 +24,11 @@ where
     /// Identifies the element among its siblings, see [keyed].
     Keyed(Key, Box<Element<Node, Error>>),
     Suspense(Box<Element<Node, Error>>, Vec<Element<Node, Error>>),
+    /// Shows the element built by the function from the error of a child, see [crate::ErrorBoundary].
+    ErrorBoundary(
+        Arc<dyn Fn(Error) -> Element<Node, Error> + Send + Sync>,
+        Vec<Element<Node, Error>>,
+    ),
 }
 
 impl<N, E> Element<N, E>
@@ -139,6 +144,9 @@ where
             }
             (Element::Keyed(ak, a), Element::Keyed(bk, b)) => ak == bk && a == b,
             (Element::Suspense(af, ac), Element::Suspense(bf, bc)) => af == bf && ac == bc,
+            (Element::ErrorBoundary(af, ac), Element::ErrorBoundary(bf, bc)) => {
+                Arc::ptr_eq(af, bf) && ac == bc
+            }
             _ => false,
         }
     }
@@ -159,6 +167,9 @@ where
             Element::Keyed(key, element) => Element::Keyed(*key, element.clone()),
             Element::Suspense(fallback, children) => {
                 Element::Suspense(fallback.clone(), children.clone())
+            }
+            Element::ErrorBoundary(fallback, children) => {
+                Element::ErrorBoundary(fallback.clone(), children.clone())
             }
         }
     }

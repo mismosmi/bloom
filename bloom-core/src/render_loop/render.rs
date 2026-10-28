@@ -12,7 +12,7 @@ use crate::{
 use super::{
     tree::{TreeComponent, TreeNode},
     visit::visit,
-    ComponentWork, Pass, RenderOutput, Work,
+    ComponentWork, Failure, Pass, RenderOutput, Visited, Work,
 };
 
 impl<N, E> TreeComponent<N, E>
@@ -35,11 +35,7 @@ where
     }
 
     /// Picks up a suspended render that has finished and reloads the child
-    pub(super) async fn reload<S>(
-        &mut self,
-        ctx: RenderContext<N>,
-        pass: &Pass<S>,
-    ) -> Result<Changes<N>, E>
+    pub(super) async fn reload<S>(&mut self, ctx: RenderContext<N>, pass: &Pass<S>) -> Visited<N, E>
     where
         N: Send + Sync + 'static,
         E: Send + 'static,
@@ -64,11 +60,7 @@ where
     /// Renders the component with its pending state updates applied.
     /// A render that does not finish on its first poll suspends and keeps running on the spawner,
     /// its result is picked up by a later render pass.
-    pub(super) async fn render<S>(
-        &mut self,
-        ctx: RenderContext<N>,
-        pass: &Pass<S>,
-    ) -> Result<Changes<N>, E>
+    pub(super) async fn render<S>(&mut self, ctx: RenderContext<N>, pass: &Pass<S>) -> Visited<N, E>
     where
         N: Send + Sync + 'static,
         E: Send + 'static,
@@ -115,12 +107,16 @@ where
         (element, hook): RenderOutput<N, E>,
         ctx: RenderContext<N>,
         pass: &Pass<S>,
-    ) -> Result<Changes<N>, E>
+    ) -> Visited<N, E>
     where
         N: Send + Sync + 'static,
         E: Send + 'static,
         S: Spawn + Clone + Send + Sync + 'static,
     {
+        self.state = hook.state;
+        self.refs = hook.refs;
+        // The effects of a failed render don't run, the component keeps its previous child
+        let element = element.map_err(Failure::new)?;
         let mut changes = Changes::default();
         // Effects of a detached component only run once its nodes are shown
         if ctx.detached {
@@ -128,15 +124,12 @@ where
         } else {
             changes.queue_effects(self.id, hook.effects);
         }
-        self.state = hook.state;
-        self.refs = hook.refs;
-        let element = element?;
         match self.child.as_mut() {
-            Some(child) => changes.append(visit(child, Work::Update(element), ctx, pass).await?),
+            Some(child) => changes.merge(visit(child, Work::Update(element), ctx, pass).await)?,
             None => {
-                let mut child = Box::new(TreeNode::from(element));
-                changes.append(visit(&mut child, Work::Create, ctx, pass).await?);
-                self.child = Some(child);
+                // The child is kept even if it fails, so its nodes are removed with the component
+                let child = self.child.insert(Box::new(TreeNode::from(element)));
+                changes.merge(visit(child, Work::Create, ctx, pass).await)?;
             }
         }
         Ok(changes)

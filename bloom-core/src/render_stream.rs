@@ -9,7 +9,7 @@ use std::{
 use async_context::provide_async_context;
 use futures_util::{
     future::{self},
-    stream::{once, FuturesOrdered},
+    stream::{self, once, FuturesOrdered},
     task::Spawn,
     Future, Stream, StreamExt,
 };
@@ -110,7 +110,47 @@ where
         Element::Suspense(_, children) => {
             Box::pin(future::ready(render_children(children, spawner, ctx)))
         }
+        // The children are buffered, so they can be replaced by the fallback if one of them fails
+        Element::ErrorBoundary(fallback, children) => Box::pin(async move {
+            match buffer(render_children(children, spawner.clone(), ctx.clone())).await {
+                Ok(nodes) => replay(nodes),
+                Err(error) => render_element(fallback(error), spawner, ctx).await,
+            }
+        }),
     }
+}
+
+/// Rendered nodes with their rendered children
+struct Buffered<N>(Vec<(N, Buffered<N>)>);
+
+fn buffer<N, E>(
+    mut nodes: NodeStream<N, E>,
+) -> Pin<Box<dyn Future<Output = Result<Buffered<N>, E>> + Send>>
+where
+    N: Send + 'static,
+    E: Send + 'static,
+{
+    Box::pin(async move {
+        let mut buffered = Vec::new();
+        while let Some(item) = nodes.next().await {
+            let (node, children) = item?;
+            buffered.push((node, buffer(children).await?));
+        }
+        Ok(Buffered(buffered))
+    })
+}
+
+fn replay<N, E>(nodes: Buffered<N>) -> NodeStream<N, E>
+where
+    N: Send + 'static,
+    E: Send + 'static,
+{
+    NodeStream::from(stream::iter(
+        nodes
+            .0
+            .into_iter()
+            .map(|(node, children)| Ok((node, replay(children)))),
+    ))
 }
 
 fn render_children<N, E, S>(

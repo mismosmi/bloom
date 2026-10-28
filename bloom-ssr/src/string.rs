@@ -57,4 +57,43 @@ mod tests {
 
         assert_eq!(output, Ok("<div>foo</div>".to_string()));
     }
+
+    #[tokio::test]
+    async fn render_error_boundary() {
+        #[derive(PartialEq)]
+        struct Failing;
+
+        #[bloom_core::__private::async_trait]
+        impl bloom_core::Component for Failing {
+            type Node = bloom_html::HtmlNode;
+            type Error = String;
+
+            async fn render(
+                self: std::sync::Arc<Self>,
+            ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                Err("failed".to_string())
+            }
+        }
+
+        let div = |children| bloom_html::tag::div().build().children(children);
+        let boundary = |children| {
+            bloom_core::ErrorBoundary::builder()
+                .fallback(|error: String| bloom_html::text(error))
+                .children(children)
+                .build()
+                .into()
+        };
+        // Nodes rendered before the error are dropped along with the children
+        let element = div(vec![
+            boundary(vec![div(vec![
+                bloom_html::text("foo"),
+                div(vec![Failing.into()]),
+            ])]),
+            boundary(vec![bloom_html::text("bar")]),
+        ]);
+
+        let output = render_to_string(element, TokioSpawner).await;
+
+        assert_eq!(output, Ok("<div>failedbar</div>".to_string()));
+    }
 }

@@ -5,9 +5,10 @@ use futures_util::task::Spawn;
 use crate::{commit::Changes, render_context::RenderContext, Element, Key};
 
 use super::{
+    chain,
     tree::{element_key, TreeNode},
     visit::{remove, sibling_anchors, visit, visit_all},
-    Pass, Work,
+    Pass, Visited, Work,
 };
 
 /// Children are matched by key if any of them has one and by position otherwise.
@@ -16,7 +17,7 @@ pub(super) async fn update_children<N, E, S>(
     elements: Vec<Element<N, E>>,
     ctx: RenderContext<N>,
     pass: &Pass<S>,
-) -> Result<Changes<N>, E>
+) -> Visited<N, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
@@ -38,7 +39,7 @@ pub(super) async fn update_children_by_position<N, E, S>(
     mut elements: Vec<Element<N, E>>,
     ctx: RenderContext<N>,
     pass: &Pass<S>,
-) -> Result<Changes<N>, E>
+) -> Visited<N, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
@@ -52,7 +53,7 @@ where
     // New children are appended before the sibling of the whole list
     let anchors = sibling_anchors(&tree_nodes[..kept], ctx.sibling.clone());
     let mut updates = elements.into_iter().zip(anchors);
-    let mut changes = visit_all(
+    let visited = visit_all(
         tree_nodes
             .iter_mut()
             .map(|tree_node| match updates.next() {
@@ -66,12 +67,14 @@ where
             })
             .collect(),
     )
-    .await?;
+    .await;
 
+    // Removed children are not in the tree anymore, so they are removed even if a child failed
+    let mut changes = Changes::default();
     for tree_node in removed {
         remove(tree_node, ctx.attached_parent(), &mut changes);
     }
-    Ok(changes)
+    chain(visited, changes)
 }
 
 /// Identifies a child in a keyed list.
@@ -98,7 +101,7 @@ pub(super) async fn update_keyed_children<N, E, S>(
     elements: Vec<Element<N, E>>,
     ctx: RenderContext<N>,
     pass: &Pass<S>,
-) -> Result<Changes<N>, E>
+) -> Visited<N, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
@@ -176,27 +179,28 @@ where
     }
     anchors.reverse();
 
-    changes.append(
-        visit_all(
-            tree_nodes
-                .iter_mut()
-                .zip(matches)
-                .zip(anchors)
-                .map(|((tree_node, matched), sibling)| {
-                    let work = match matched {
-                        Some((_, element)) => Work::Update(element),
-                        None => Work::Create,
-                    };
-                    visit(tree_node, work, ctx.with_sibling(sibling), pass)
-                })
-                .collect(),
-        )
-        .await?,
-    );
+    let visited = visit_all(
+        tree_nodes
+            .iter_mut()
+            .zip(matches)
+            .zip(anchors)
+            .map(|((tree_node, matched), sibling)| {
+                let work = match matched {
+                    Some((_, element)) => Work::Update(element),
+                    None => Work::Create,
+                };
+                visit(tree_node, work, ctx.with_sibling(sibling), pass)
+            })
+            .collect(),
+    )
+    .await;
 
+    // Removed children are not in the tree anymore, so they are removed even if a child failed
+    let mut removed = Changes::default();
     for old_node in old_nodes.into_iter().flatten() {
-        remove(old_node, ctx.attached_parent(), &mut changes);
+        remove(old_node, ctx.attached_parent(), &mut removed);
     }
+    changes.merge(chain(visited, removed))?;
     Ok(changes)
 }
 

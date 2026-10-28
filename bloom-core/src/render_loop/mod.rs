@@ -9,7 +9,7 @@ mod tests;
 mod tree;
 mod visit;
 
-use std::{pin::Pin, sync::Arc};
+use std::{mem, pin::Pin, sync::Arc};
 
 use async_channel::{bounded, Sender};
 use futures_util::{future, task::Spawn, Future};
@@ -28,7 +28,57 @@ use visit::visit;
 
 type RenderOutput<N, E> = (Result<Element<N, E>, E>, Hook);
 type RenderFuture<N, E> = Pin<Box<dyn Future<Output = RenderOutput<N, E>> + Send>>;
-type Visit<'a, N, E> = Pin<Box<dyn Future<Output = Result<Changes<N>, E>> + Send + 'a>>;
+type Visited<N, E> = Result<Changes<N>, Failure<N, E>>;
+type Visit<'a, N, E> = Pin<Box<dyn Future<Output = Visited<N, E>> + Send + 'a>>;
+
+/// The error of a component together with the changes collected until it failed.
+/// The tree is updated along with the changes, so an error boundary commits them
+/// before it removes its children to keep the tree and the object model in sync.
+struct Failure<N, E> {
+    error: E,
+    changes: Changes<N>,
+}
+
+impl<N, E> Failure<N, E> {
+    fn new(error: E) -> Self {
+        Self {
+            error,
+            changes: Changes::default(),
+        }
+    }
+}
+
+impl<N> Changes<N> {
+    /// Appends the changes of a visit. A failure takes the changes collected so far with it.
+    fn merge<E>(&mut self, visited: Visited<N, E>) -> Result<(), Failure<N, E>> {
+        match visited {
+            Ok(changes) => {
+                self.append(changes);
+                Ok(())
+            }
+            Err(mut failure) => {
+                let mut changes = mem::take(self);
+                changes.append(failure.changes);
+                failure.changes = changes;
+                Err(failure)
+            }
+        }
+    }
+}
+
+/// Appends changes after those of a visit, whether it failed or not
+fn chain<N, E>(visited: Visited<N, E>, changes: Changes<N>) -> Visited<N, E> {
+    match visited {
+        Ok(mut visited) => {
+            visited.append(changes);
+            Ok(visited)
+        }
+        Err(mut failure) => {
+            failure.changes.append(changes);
+            Err(failure)
+        }
+    }
+}
 
 /// Levels of nested nodes that are visited in one task before continuing in a new one
 const TASK_DEPTH: usize = 64;
@@ -215,7 +265,9 @@ where
         // The first pass creates the whole tree, later passes only reload what changed
         let work = if created { Work::Reload } else { Work::Create };
         created = true;
-        let changes = visit(&mut tree_root.0, work, ctx, &pass).await?;
+        let changes = visit(&mut tree_root.0, work, ctx, &pass)
+            .await
+            .map_err(|failure| failure.error)?;
 
         object_model.start().await;
         cleanups.commit(changes, &mut object_model);

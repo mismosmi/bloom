@@ -12,7 +12,7 @@ It provides APIs similar to those of react:
 * `use_context` (WIP)
 * `use_layout_effect` (WIP)
 * `Suspense`
-* `ErrorBoundary` (WIP)
+* `ErrorBoundary`
 
 that can be used in the `render`-method of the `Component`-trait for features such as state, side-effects or raw references to the underlying renderer.
 
@@ -38,7 +38,18 @@ The `Component`-trait has an associated type `Error` that represents the type of
 
 This enables the consumer of the library to use their own error type, which might be `anyhow::Error`, an error type generated with `thiserror` or a completely custom error type.
 
-A reasonable API to catch these errors (`ErrorBoundary`) is in the making.
+Wrap components in an `ErrorBoundary` to catch their errors. When one of the children fails, all of them are removed
+and the fallback, built from the error, is shown in their place:
+```rust
+rsx!(
+    <ErrorBoundary fallback={|error: MyError| rsx!(<div>{error.to_string()}</div>)}>
+        <Profile />
+    </ErrorBoundary>
+)
+```
+The fallback stays until the boundary is created again, e.g. by changing its key.
+Errors of the fallback itself, and errors outside of any boundary, are passed on to the next boundary above
+or end the render loop.
 
 ## Keyed lists
 Children are matched to the previous render by their position.

@@ -14,6 +14,7 @@ use crate::{
     commit::{Changes, ComponentId},
     component::AnyComponent,
     effect::Effect,
+    error_boundary::Fallback,
     render_context::RenderContext,
     state::StateUpdate,
     Element, Key,
@@ -98,6 +99,16 @@ where
     }
 }
 
+pub(super) struct TreeErrorBoundary<N, E>
+where
+    N: From<String>,
+{
+    pub(super) fallback: Fallback<N, E>,
+    /// Once a child failed, the children are replaced by the fallback for good
+    pub(super) failed: bool,
+    pub(super) children: Vec<TreeNode<N, E>>,
+}
+
 pub(super) enum TreeNode<N, E>
 where
     N: From<String>,
@@ -108,6 +119,7 @@ where
     Provider(Arc<dyn Any + Send + Sync>, Vec<TreeNode<N, E>>),
     Keyed(Key, Box<TreeNode<N, E>>),
     Suspense(TreeSuspense<N, E>),
+    ErrorBoundary(TreeErrorBoundary<N, E>),
 }
 
 impl<N, E> TreeNode<N, E>
@@ -145,6 +157,13 @@ where
                 Element::Suspense(fallback, children) => {
                     stack.push(PendingTreeNode::new(
                         PendingKind::Suspense(*fallback),
+                        children,
+                    ));
+                    None
+                }
+                Element::ErrorBoundary(fallback, children) => {
+                    stack.push(PendingTreeNode::new(
+                        PendingKind::ErrorBoundary(fallback),
                         children,
                     ));
                     None
@@ -189,6 +208,14 @@ where
                 }
                 None
             }
+            Self::ErrorBoundary(boundary) => {
+                for child in &boundary.children {
+                    if let Some(node) = child.get_first_node() {
+                        return Some(node);
+                    }
+                }
+                None
+            }
             Self::Keyed(_, child) => child.get_first_node(),
             Self::Suspense(suspense) => match &suspense.state {
                 SuspenseState::Unsettled(_) => None,
@@ -214,7 +241,9 @@ where
                 }
             }
             Self::Node(node, _) => nodes.push(Arc::clone(node)),
-            Self::Fragment(children) | Self::Provider(_, children) => {
+            Self::Fragment(children)
+            | Self::Provider(_, children)
+            | Self::ErrorBoundary(TreeErrorBoundary { children, .. }) => {
                 for child in children {
                     child.collect_nodes(nodes);
                 }
@@ -246,7 +275,8 @@ where
                 }
                 Self::Node(_, children)
                 | Self::Fragment(children)
-                | Self::Provider(_, children) => stack.extend(children),
+                | Self::Provider(_, children)
+                | Self::ErrorBoundary(TreeErrorBoundary { children, .. }) => stack.extend(children),
                 Self::Keyed(_, child) => stack.push(child),
                 Self::Suspense(suspense) => {
                     if let SuspenseState::Fallback(fallback) = &suspense.state {
@@ -284,7 +314,9 @@ where
                         stack.push((child, Arc::clone(node), None));
                     }
                 }
-                Self::Fragment(children) | Self::Provider(_, children) => {
+                Self::Fragment(children)
+                | Self::Provider(_, children)
+                | Self::ErrorBoundary(TreeErrorBoundary { children, .. }) => {
                     for child in children.iter_mut().rev() {
                         stack.push((child, Arc::clone(&parent), sibling.clone()));
                     }
@@ -330,6 +362,7 @@ where
     Provider(Arc<dyn Any + Send + Sync>),
     Keyed(Key),
     Suspense(Element<N, E>),
+    ErrorBoundary(Fallback<N, E>),
 }
 
 impl<N, E> PendingTreeNode<N, E>
@@ -355,6 +388,11 @@ where
             ),
             PendingKind::Suspense(fallback) => TreeNode::Suspense(TreeSuspense {
                 state: SuspenseState::Unsettled(fallback),
+                children: self.children,
+            }),
+            PendingKind::ErrorBoundary(fallback) => TreeNode::ErrorBoundary(TreeErrorBoundary {
+                fallback,
+                failed: false,
                 children: self.children,
             }),
         }
