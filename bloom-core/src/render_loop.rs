@@ -1,18 +1,28 @@
-use std::{any::Any, collections::HashMap, mem, pin::Pin, sync::Arc};
+use std::{
+    any::Any,
+    collections::HashMap,
+    mem,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 use async_channel::{bounded, unbounded, Receiver, Sender};
 use futures_util::{
-    future::{self, Either, RemoteHandle},
+    future,
     task::{Spawn, SpawnExt},
     Future,
 };
 
 use crate::{
+    commit::{Changes, Cleanups, ComponentId},
     component::{AnyComponent, ComponentDiff},
     context::ContextMap,
     effect::Effect,
     hook::Hook,
-    render_queue::{EffectSlot, RenderContext, RenderQueue, RenderQueueItem},
+    render_context::RenderContext,
     state::StateUpdate,
     suspense::{run_or_suspend, RunOrSuspendResult},
     Element, Key,
@@ -20,32 +30,55 @@ use crate::{
 
 type RenderOutput<N, E> = (Result<Element<N, E>, E>, Hook);
 type RenderFuture<N, E> = Pin<Box<dyn Future<Output = RenderOutput<N, E>> + Send>>;
+type Visit<'a, N, E> = Pin<Box<dyn Future<Output = Result<Changes<N>, E>> + Send + 'a>>;
 
-/// A component's render, running on the spawner
-struct RenderTask<N, E>
+static NEXT_COMPONENT_ID: AtomicU64 = AtomicU64::new(0);
+
+/// What a render pass does with a subtree
+enum Work<N, E>
 where
     N: From<String>,
 {
-    handle: RemoteHandle<RenderOutput<N, E>>,
-    /// Receives a message if the render did not finish when it was first polled
-    suspended: Receiver<()>,
+    Create,
+    Reload,
+    Update(Element<N, E>),
+}
+
+/// What a render pass does with a component
+enum ComponentWork<N, E> {
+    Create,
+    Reload,
+    NewProps(Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>),
+}
+
+/// Shared by all tasks of the render loop
+struct Pass<S> {
+    spawner: Arc<S>,
+    signal: Sender<()>,
+}
+
+impl<S> Clone for Pass<S> {
+    fn clone(&self) -> Self {
+        Self {
+            spawner: Arc::clone(&self.spawner),
+            signal: self.signal.clone(),
+        }
+    }
 }
 
 pub(crate) struct TreeComponent<N, E>
 where
     N: From<String>,
 {
+    id: ComponentId,
     component: Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>,
     state: HashMap<u16, Arc<dyn Any + Send + Sync>>,
     updates: Receiver<StateUpdate>,
     updater: Sender<StateUpdate>,
-    /// A render that was started in this render pass and is not awaited yet
-    rendering: Option<RenderTask<N, E>>,
     /// A render that suspended in an earlier render pass
     render_result: Option<RenderFuture<N, E>>,
     child: Option<Box<TreeNode<N, E>>>,
     refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
-    effects: EffectSlot,
     /// Effects of a detached component only run once its nodes are shown
     deferred_effects: Option<Vec<(u64, Effect)>>,
 }
@@ -57,30 +90,136 @@ where
     fn new(component: Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>) -> Self {
         let (update_sender, update_receiver) = unbounded::<StateUpdate>();
         Self {
+            id: NEXT_COMPONENT_ID.fetch_add(1, Ordering::Relaxed),
             component,
             state: HashMap::new(),
             updates: update_receiver,
             updater: update_sender,
             child: None,
-            rendering: None,
             render_result: None,
             refs: HashMap::new(),
-            effects: EffectSlot::default(),
             deferred_effects: None,
         }
     }
 
-    fn queue_effects(
+    /// Renders the component if it has to and diffs its child
+    async fn visit<S>(
         &mut self,
-        effects: Vec<(u64, Effect)>,
-        render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
-        ctx: &RenderContext<N>,
-    ) {
-        if ctx.detached {
-            self.deferred_effects = Some(effects);
-        } else {
-            render_queue.queue_effects(&self.effects, effects);
+        work: ComponentWork<N, E>,
+        ctx: RenderContext<N>,
+        pass: &Pass<S>,
+    ) -> Result<Changes<N>, E>
+    where
+        N: Send + Sync + 'static,
+        E: Send + 'static,
+        S: Spawn + Send + Sync + 'static,
+    {
+        let render = match work {
+            ComponentWork::Create => true,
+            ComponentWork::NewProps(component) => {
+                self.component = component;
+                true
+            }
+            // A suspended render that is still waiting is replaced if the state changed
+            ComponentWork::Reload => {
+                !self.updates.is_empty() || (self.render_result.is_none() && self.child.is_none())
+            }
+        };
+        if render {
+            return self.render(ctx, pass).await;
         }
+
+        if let Some(render_result) = self.render_result.take() {
+            match run_or_suspend(render_result) {
+                RunOrSuspendResult::Suspend(render_result) => {
+                    self.render_result = Some(render_result)
+                }
+                RunOrSuspendResult::Done(output) => {
+                    return self.apply_render(output, ctx, pass).await
+                }
+            }
+        }
+        match self.child.as_mut() {
+            Some(child) => visit(child, Work::Reload, ctx, pass).await,
+            None => Ok(Changes::default()),
+        }
+    }
+
+    /// Renders the component with its pending state updates applied.
+    /// A render that does not finish on its first poll suspends and keeps running on the spawner,
+    /// its result is picked up by a later render pass.
+    async fn render<S>(&mut self, ctx: RenderContext<N>, pass: &Pass<S>) -> Result<Changes<N>, E>
+    where
+        N: Send + Sync + 'static,
+        E: Send + 'static,
+        S: Spawn + Send + Sync + 'static,
+    {
+        while let Ok(state_update) = self.updates.try_recv() {
+            state_update.apply(&mut self.state);
+        }
+
+        // A newer render replaces one that suspended before
+        self.render_result = None;
+        let hook = Hook::new(
+            pass.signal.clone(),
+            self.updater.clone(),
+            self.state.clone(),
+            self.refs.clone(),
+            ctx.context.clone(),
+        );
+        let component = Arc::clone(&self.component);
+        match run_or_suspend(Box::pin(async_context::provide_async_context(
+            hook,
+            component.render(),
+        ))) {
+            RunOrSuspendResult::Done(output) => self.apply_render(output, ctx, pass).await,
+            RunOrSuspendResult::Suspend(render_future) => {
+                let signal = pass.signal.clone();
+                self.render_result = Some(Box::pin(
+                    pass.spawner
+                        .spawn_with_handle(async move {
+                            let output = render_future.await;
+                            let _ = signal.try_send(());
+                            output
+                        })
+                        .expect("Failed to spawn async task"),
+                ));
+                Ok(Changes::default())
+            }
+        }
+    }
+
+    /// Queues the effects of a finished render and diffs its output
+    async fn apply_render<S>(
+        &mut self,
+        (element, hook): RenderOutput<N, E>,
+        ctx: RenderContext<N>,
+        pass: &Pass<S>,
+    ) -> Result<Changes<N>, E>
+    where
+        N: Send + Sync + 'static,
+        E: Send + 'static,
+        S: Spawn + Send + Sync + 'static,
+    {
+        let mut changes = Changes::default();
+        // Effects of a detached component only run once its nodes are shown
+        if ctx.detached {
+            self.deferred_effects = Some(hook.effects);
+        } else {
+            changes.queue_effects(self.id, hook.effects);
+        }
+        self.state = hook.state;
+        self.refs = hook.refs;
+        let element = element?;
+        match self.child.as_mut() {
+            Some(child) => changes.append(visit(child, Work::Update(element), ctx, pass).await?),
+            None => {
+                let mut child = Box::new(TreeNode::from(element));
+                changes.append(visit(&mut child, Work::Create, ctx, pass).await?);
+                self.child = Some(child);
+            }
+        }
+        Ok(changes)
     }
 }
 
@@ -126,7 +265,7 @@ pub(crate) enum TreeNode<N, E>
 where
     N: From<String>,
 {
-    Component(TreeComponent<N, E>),
+    Component(Box<TreeComponent<N, E>>),
     Node(Arc<N>, Vec<TreeNode<N, E>>),
     Fragment(Vec<TreeNode<N, E>>),
     Provider(Arc<dyn Any + Send + Sync>, Vec<TreeNode<N, E>>),
@@ -140,7 +279,9 @@ where
 {
     fn from(element: Element<N, E>) -> Self {
         match element {
-            Element::Component(component) => TreeNode::Component(TreeComponent::new(component)),
+            Element::Component(component) => {
+                TreeNode::Component(Box::new(TreeComponent::new(component)))
+            }
             Element::Node(node, children) => TreeNode::Node(
                 Arc::new(node),
                 children
@@ -257,39 +398,34 @@ where
 
     /// Passes a detached subtree to the object model, inserting it before the sibling.
     /// Effects that were held back while it was detached are queued.
-    fn mount(
-        &mut self,
-        parent: &Arc<N>,
-        sibling: &Option<Arc<N>>,
-        render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
-    ) {
+    fn mount(&mut self, parent: &Arc<N>, sibling: &Option<Arc<N>>, changes: &mut Changes<N>) {
         match self {
             Self::Component(component) => {
                 if let Some(effects) = component.deferred_effects.take() {
-                    render_queue.queue_effects(&component.effects, effects);
+                    changes.queue_effects(component.id, effects);
                 }
                 if let Some(child) = component.child.as_mut() {
-                    child.mount(parent, sibling, render_queue);
+                    child.mount(parent, sibling, changes);
                 }
             }
             Self::Node(node, children) => {
-                render_queue.create_node(node, parent, sibling);
+                changes.create_node(node, parent, sibling);
                 for child in children {
-                    child.mount(node, &None, render_queue);
+                    child.mount(node, &None, changes);
                 }
             }
             Self::Fragment(children) | Self::Provider(_, children) => {
                 for child in children {
-                    child.mount(parent, sibling, render_queue);
+                    child.mount(parent, sibling, changes);
                 }
             }
-            Self::Keyed(_, child) => child.mount(parent, sibling, render_queue),
+            Self::Keyed(_, child) => child.mount(parent, sibling, changes),
             Self::Suspense(suspense) => match &mut suspense.state {
                 SuspenseState::Unsettled(_) => {}
-                SuspenseState::Fallback(fallback) => fallback.mount(parent, sibling, render_queue),
+                SuspenseState::Fallback(fallback) => fallback.mount(parent, sibling, changes),
                 SuspenseState::Revealed => {
                     for child in &mut suspense.children {
-                        child.mount(parent, sibling, render_queue);
+                        child.mount(parent, sibling, changes);
                     }
                 }
             },
@@ -372,12 +508,13 @@ pub trait ObjectModel {
 /// The spawner-argument is
 /// an object that implements the Spawn-trait so bloom can spawn async tasks on
 /// arbitrary task runners such as tokio or async-std.
-/// Every component renders in a task on the spawner, so with a multi-threaded spawner
-/// sibling components render in parallel.
+/// Every component is rendered and diffed in its own task on the spawner, so with a
+/// multi-threaded spawner sibling components render in parallel.
+/// The spawner is shared between these tasks, so it has to be `Send` and `Sync`.
 ///
 /// Each render pass has two phases:
-/// 1. Rendering walks the tree and awaits the components that have to render.
-///    Changes to the object model are only queued, the host environment is not touched.
+/// 1. Rendering visits the tree and collects the changes to the object model in document order,
+///    the host environment is not touched.
 ///    A component that does not finish its render on the first poll suspends and its
 ///    result is picked up by a later render pass.
 /// 2. The commit runs synchronously in one go after `ObjectModel::start`:
@@ -443,9 +580,9 @@ pub async fn render_loop<N, E, S, P>(
     mut object_model: P,
 ) -> Result<(), E>
 where
-    N: From<String> + Send + 'static,
+    N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn,
+    S: Spawn + Send + Sync + 'static,
     P: ObjectModel<Node = N>,
 {
     let mut tree_root = TreeNode::from(element);
@@ -458,332 +595,402 @@ where
         .try_send(())
         .expect("Failed to send message to trigger initial render");
 
+    let pass = Pass {
+        spawner: Arc::new(spawner),
+        signal: signal_sender,
+    };
+    let mut cleanups = Cleanups::default();
     let mut created = false;
 
     while signal_receiver.recv().await.is_ok() {
-        let mut render_queue = RenderQueue::new();
         let ctx = RenderContext::new(root.clone(), None, object_model.get_context());
         // The first pass creates the whole tree, later passes only reload what changed
-        if created {
-            render_queue.reload(&mut tree_root, ctx);
-        } else {
-            render_queue.create(&mut tree_root, ctx);
-            created = true;
-        }
-
-        let mut queued = 0;
-        loop {
-            // Components start rendering as soon as they are queued, so the renders of
-            // siblings run in parallel while the queue is still processed in order
-            render_queue
-                .map_queued_since(queued, |item| start_render(item, &signal_sender, &spawner));
-            let Some(item) = render_queue.next() else {
-                break;
-            };
-            queued = render_queue.len();
-            process_item(item, &mut render_queue).await?;
-        }
+        let work = if created { Work::Reload } else { Work::Create };
+        created = true;
+        let changes = visit(&mut tree_root, work, ctx, &pass).await?;
 
         object_model.start().await;
-        render_queue.commit(&mut object_model);
+        cleanups.commit(changes, &mut object_model);
         object_model.finalize().await;
     }
 
     Ok(())
 }
 
-/// Starts rendering the component of a queued item if it has to be rendered.
-/// The item is replaced by one that waits for the render.
-fn start_render<N, E, S>(
-    item: RenderQueueItem<N, E, TreeNode<N, E>>,
-    signal_sender: &Sender<()>,
-    spawner: &S,
-) -> RenderQueueItem<N, E, TreeNode<N, E>>
+/// Diffs a subtree and collects its changes in document order.
+/// Each component is visited in its own task on the spawner, so siblings are rendered and diffed
+/// in parallel and the stack only grows with the nesting of nodes within a single component.
+fn visit<'a, N, E, S>(
+    node: &'a mut TreeNode<N, E>,
+    work: Work<N, E>,
+    ctx: RenderContext<N>,
+    pass: &'a Pass<S>,
+) -> Visit<'a, N, E>
 where
-    N: From<String> + Send + 'static,
+    N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn,
+    S: Spawn + Send + Sync + 'static,
 {
-    match item {
-        RenderQueueItem::Create { current, ctx } => match unsafe { &mut *current } {
-            TreeNode::Component(component) => {
-                spawn_render(component, signal_sender, &ctx, spawner);
-                RenderQueueItem::Render { current, ctx }
+    Box::pin(async move {
+        match work {
+            Work::Create => create(node, ctx, pass).await,
+            Work::Reload => reload(node, ctx, pass).await,
+            Work::Update(next) => update(node, next, ctx, pass).await,
+        }
+    })
+}
+
+/// Visits the subtrees concurrently and joins their changes in order
+async fn visit_all<N, E>(visits: Vec<Visit<'_, N, E>>) -> Result<Changes<N>, E> {
+    let mut changes = Changes::default();
+    for child_changes in future::try_join_all(visits).await? {
+        changes.append(child_changes);
+    }
+    Ok(changes)
+}
+
+/// Moves the component into a task on the spawner and puts it back once it is visited
+async fn visit_component<N, E, S>(
+    node: &mut TreeNode<N, E>,
+    work: ComponentWork<N, E>,
+    ctx: RenderContext<N>,
+    pass: &Pass<S>,
+) -> Result<Changes<N>, E>
+where
+    N: From<String> + Send + Sync + 'static,
+    E: Send + 'static,
+    S: Spawn + Send + Sync + 'static,
+{
+    let TreeNode::Component(mut component) = mem::replace(node, TreeNode::Fragment(Vec::new()))
+    else {
+        unreachable!("Only components are visited in a task")
+    };
+    let task_pass = pass.clone();
+    let task = pass
+        .spawner
+        .spawn_with_handle(async move {
+            let result = component.visit(work, ctx, &task_pass).await;
+            (component, result)
+        })
+        .expect("Failed to spawn async task");
+    let (component, result) = task.await;
+    *node = TreeNode::Component(component);
+    result
+}
+
+async fn create<N, E, S>(
+    node: &mut TreeNode<N, E>,
+    ctx: RenderContext<N>,
+    pass: &Pass<S>,
+) -> Result<Changes<N>, E>
+where
+    N: From<String> + Send + Sync + 'static,
+    E: Send + 'static,
+    S: Spawn + Send + Sync + 'static,
+{
+    let mut changes = Changes::default();
+    match node {
+        TreeNode::Component(_) => {
+            return visit_component(node, ComponentWork::Create, ctx, pass).await;
+        }
+        TreeNode::Node(node, children) => {
+            if !ctx.detached {
+                changes.create_node(node, &ctx.parent, &ctx.sibling);
             }
-            _ => RenderQueueItem::Create { current, ctx },
-        },
-        // A suspended render that is still waiting is replaced if the state changed
-        RenderQueueItem::Reload { current, ctx } => match unsafe { &mut *current } {
-            TreeNode::Component(component)
-                if !component.updates.is_empty()
-                    || (component.render_result.is_none() && component.child.is_none()) =>
-            {
-                spawn_render(component, signal_sender, &ctx, spawner);
-                RenderQueueItem::Render { current, ctx }
+            let children_ctx = ctx.with_parent(node.clone());
+            changes.append(
+                visit_all(
+                    children
+                        .iter_mut()
+                        .map(|child| visit(child, Work::Create, children_ctx.clone(), pass))
+                        .collect(),
+                )
+                .await?,
+            );
+        }
+        // Children are created in order, so each one is inserted before the
+        // fragment's sibling, which already exists, rather than before the next child
+        TreeNode::Fragment(children) => changes.append(
+            visit_all(
+                children
+                    .iter_mut()
+                    .map(|child| visit(child, Work::Create, ctx.clone(), pass))
+                    .collect(),
+            )
+            .await?,
+        ),
+        TreeNode::Provider(value, children) => {
+            let children_ctx = ctx.with_context(value.clone());
+            changes.append(
+                visit_all(
+                    children
+                        .iter_mut()
+                        .map(|child| visit(child, Work::Create, children_ctx.clone(), pass))
+                        .collect(),
+                )
+                .await?,
+            );
+        }
+        TreeNode::Keyed(_, child) => return visit(child, Work::Create, ctx, pass).await,
+        // The fallback is only created once it is clear that the children suspend
+        TreeNode::Suspense(suspense) => {
+            let children_ctx = ctx.detach();
+            changes.append(
+                visit_all(
+                    suspense
+                        .children
+                        .iter_mut()
+                        .map(|child| visit(child, Work::Create, children_ctx.clone(), pass))
+                        .collect(),
+                )
+                .await?,
+            );
+            changes.append(settle(suspense, ctx, pass).await?);
+        }
+    }
+    Ok(changes)
+}
+
+/// The sibling of each child is the first node of the child after it before this render pass
+fn sibling_anchors<N, E>(children: &[TreeNode<N, E>], last: Option<Arc<N>>) -> Vec<Option<Arc<N>>>
+where
+    N: From<String>,
+{
+    let mut sibling = last;
+    let mut anchors = Vec::with_capacity(children.len());
+    for child in children.iter().rev() {
+        anchors.push(sibling);
+        sibling = child.get_first_node();
+    }
+    anchors.reverse();
+    anchors
+}
+
+async fn reload<N, E, S>(
+    node: &mut TreeNode<N, E>,
+    ctx: RenderContext<N>,
+    pass: &Pass<S>,
+) -> Result<Changes<N>, E>
+where
+    N: From<String> + Send + Sync + 'static,
+    E: Send + 'static,
+    S: Spawn + Send + Sync + 'static,
+{
+    match node {
+        TreeNode::Component(_) => visit_component(node, ComponentWork::Reload, ctx, pass).await,
+        TreeNode::Node(node, children) => {
+            let anchors = sibling_anchors(children, None);
+            visit_all(
+                children
+                    .iter_mut()
+                    .zip(anchors)
+                    .map(|(child, sibling)| {
+                        let child_ctx = ctx.with_parent_and_sibling(node.clone(), sibling);
+                        visit(child, Work::Reload, child_ctx, pass)
+                    })
+                    .collect(),
+            )
+            .await
+        }
+        TreeNode::Fragment(children) => {
+            let anchors = sibling_anchors(children, ctx.sibling.clone());
+            visit_all(
+                children
+                    .iter_mut()
+                    .zip(anchors)
+                    .map(|(child, sibling)| {
+                        visit(child, Work::Reload, ctx.with_sibling(sibling), pass)
+                    })
+                    .collect(),
+            )
+            .await
+        }
+        TreeNode::Provider(value, children) => {
+            let anchors = sibling_anchors(children, ctx.sibling.clone());
+            visit_all(
+                children
+                    .iter_mut()
+                    .zip(anchors)
+                    .map(|(child, sibling)| {
+                        let child_ctx = ctx.with_sibling_and_context(sibling, value.clone());
+                        visit(child, Work::Reload, child_ctx, pass)
+                    })
+                    .collect(),
+            )
+            .await
+        }
+        TreeNode::Keyed(_, child) => visit(child, Work::Reload, ctx, pass).await,
+        TreeNode::Suspense(suspense) => {
+            let children_ctx = suspense.children_ctx(&ctx);
+            let anchors = sibling_anchors(&suspense.children, children_ctx.sibling.clone());
+            let mut changes = visit_all(
+                suspense
+                    .children
+                    .iter_mut()
+                    .zip(anchors)
+                    .map(|(child, sibling)| {
+                        visit(
+                            child,
+                            Work::Reload,
+                            children_ctx.with_sibling(sibling),
+                            pass,
+                        )
+                    })
+                    .collect(),
+            )
+            .await?;
+            if let SuspenseState::Fallback(fallback) = &mut suspense.state {
+                changes.append(visit(fallback, Work::Reload, ctx.clone(), pass).await?);
             }
-            _ => RenderQueueItem::Reload { current, ctx },
-        },
-        RenderQueueItem::Update {
-            current,
-            next: Element::Component(next_component),
-            ctx,
-        } => match unsafe { &mut *current } {
-            TreeNode::Component(component)
-                if matches!(
-                    next_component.compare(component.component.as_any()),
-                    ComponentDiff::NewProps
-                ) =>
-            {
-                component.component = next_component;
-                spawn_render(component, signal_sender, &ctx, spawner);
-                RenderQueueItem::Render { current, ctx }
-            }
-            _ => RenderQueueItem::Update {
-                current,
-                next: Element::Component(next_component),
-                ctx,
-            },
-        },
-        item => item,
+            changes.append(settle(suspense, ctx, pass).await?);
+            Ok(changes)
+        }
     }
 }
 
-async fn process_item<N, E>(
-    item: RenderQueueItem<N, E, TreeNode<N, E>>,
-    render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
-) -> Result<(), E>
+async fn update<N, E, S>(
+    node: &mut TreeNode<N, E>,
+    next: Element<N, E>,
+    ctx: RenderContext<N>,
+    pass: &Pass<S>,
+) -> Result<Changes<N>, E>
 where
-    N: From<String> + Send + 'static,
+    N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
+    S: Spawn + Send + Sync + 'static,
 {
-    match item {
-        RenderQueueItem::Create { current, ctx } => match unsafe { &mut *current } {
-            TreeNode::Component(_) => unreachable!("Components are rendered when they are queued"),
-            TreeNode::Node(node, children) => {
-                if !ctx.detached {
-                    render_queue.create_node(node, &ctx.parent, &ctx.sibling);
-                }
-                for child in children.iter_mut().rev() {
-                    render_queue.create(child, ctx.with_parent(node.clone()));
-                }
+    // A changed key means a different element, so it is replaced instead of
+    // updated in place. Removing the old element runs its cleanups.
+    if node.key() != element_key(&next) {
+        return replace_node(node, next, ctx, pass).await;
+    }
+    if let (TreeNode::Component(current), Element::Component(next_component)) = (&*node, &next) {
+        let work = match next_component.compare(current.component.as_any()) {
+            ComponentDiff::Equal => ComponentWork::Reload,
+            ComponentDiff::NewProps => ComponentWork::NewProps(Arc::clone(next_component)),
+            // Removing the old component runs its cleanups
+            ComponentDiff::NewType => return replace_node(node, next, ctx, pass).await,
+        };
+        return visit_component(node, work, ctx, pass).await;
+    }
+
+    let mut changes = Changes::default();
+    match (node, next) {
+        (TreeNode::Node(current, current_children), Element::Node(next, next_children)) => {
+            let next = Arc::new(next);
+            if !ctx.detached {
+                changes.update_node(current, &next);
             }
-            // Children are created in order, so each one is inserted before the
-            // fragment's sibling, which already exists, rather than before the next child
-            TreeNode::Fragment(children) => {
-                for child in children.iter_mut().rev() {
-                    render_queue.create(child, ctx.clone());
-                }
-            }
-            TreeNode::Provider(value, children) => {
-                for child in children.iter_mut().rev() {
-                    render_queue.create(child, ctx.with_context(value.clone()));
-                }
-            }
-            TreeNode::Keyed(_, child) => render_queue.create(child.as_mut(), ctx),
-            // The fallback is only created once it is clear that the children suspend
-            TreeNode::Suspense(suspense) => {
-                render_queue.settle(unsafe { &mut *current }, ctx.clone());
-                let children_ctx = ctx.detach();
-                for child in suspense.children.iter_mut().rev() {
-                    render_queue.create(child, children_ctx.clone());
-                }
-            }
-        },
-        RenderQueueItem::Reload { current, ctx } => match unsafe { &mut *current } {
-            // Components that have to render again were started when they were queued.
-            // State updates that arrived since then signal another render pass.
-            TreeNode::Component(component) => {
-                if let Some(render_result) = component.render_result.take() {
-                    match run_or_suspend(render_result) {
-                        RunOrSuspendResult::Suspend(render_result) => {
-                            component.render_result = Some(render_result);
-                            if let Some(ref mut child) = component.child {
-                                render_queue.reload(child.as_mut(), ctx);
-                            }
-                        }
-                        RunOrSuspendResult::Done(output) => {
-                            apply_render(component, output, render_queue, ctx)?
-                        }
-                    }
-                } else if let Some(ref mut child) = component.child {
-                    render_queue.reload(child.as_mut(), ctx);
-                }
-            }
-            TreeNode::Node(node, children) => {
-                let mut sibling = None;
-                for child in children.iter_mut().rev() {
-                    render_queue.reload(child, ctx.with_parent_and_sibling(node.clone(), sibling));
-                    sibling = child.get_first_node();
-                }
-            }
-            TreeNode::Fragment(children) => {
-                let mut sibling = ctx.sibling.clone();
-                for child in children.iter_mut().rev() {
-                    render_queue.reload(child, ctx.with_sibling(sibling));
-                    sibling = child.get_first_node();
-                }
-            }
-            TreeNode::Provider(value, children) => {
-                let mut sibling = ctx.sibling.clone();
-                for child in children.iter_mut().rev() {
-                    render_queue
-                        .reload(child, ctx.with_sibling_and_context(sibling, value.clone()));
-                    sibling = child.get_first_node();
-                }
-            }
-            TreeNode::Keyed(_, child) => render_queue.reload(child.as_mut(), ctx),
-            TreeNode::Suspense(suspense) => {
-                render_queue.settle(unsafe { &mut *current }, ctx.clone());
-                let children_ctx = suspense.children_ctx(&ctx);
-                if let SuspenseState::Fallback(fallback) = &mut suspense.state {
-                    render_queue.reload(fallback.as_mut(), ctx);
-                }
-                let mut sibling = children_ctx.sibling.clone();
-                for child in suspense.children.iter_mut().rev() {
-                    render_queue.reload(child, children_ctx.with_sibling(sibling));
-                    sibling = child.get_first_node();
-                }
-            }
-        },
-        RenderQueueItem::Update { current, next, ctx } => {
-            let current_node = unsafe { &mut *current };
-            // A changed key means a different element, so it is replaced instead of
-            // updated in place. Removing the old element runs its cleanups.
-            if current_node.key() != element_key(&next) {
-                replace_node(current_node, next, render_queue, ctx);
-                return Ok(());
-            }
-            match (current_node, next) {
-                // Components with new props were started when they were queued
-                (
-                    TreeNode::Component(ref mut current_component),
-                    Element::Component(next_component),
-                ) => {
-                    match next_component.compare(current_component.component.as_any()) {
-                        ComponentDiff::Equal => render_queue.reload(unsafe { &mut *current }, ctx),
-                        ComponentDiff::NewProps => {
-                            unreachable!("Components are rendered when they are queued")
-                        }
-                        // Removing the old component runs its cleanups
-                        ComponentDiff::NewType => replace_node(
-                            unsafe { &mut *current },
-                            Element::Component(next_component),
-                            render_queue,
-                            ctx,
-                        ),
-                    }
-                }
-                (TreeNode::Node(current, current_children), Element::Node(next, next_children)) => {
-                    let next = Arc::new(next);
-                    if !ctx.detached {
-                        render_queue.update_node(current, &next);
-                    }
-                    *current = next.clone();
-                    update_children(
-                        current_children,
-                        next_children,
-                        render_queue,
-                        ctx.with_parent(next),
-                    );
-                }
-                (TreeNode::Fragment(current_children), Element::Fragment(next_children)) => {
-                    update_children(current_children, next_children, render_queue, ctx)
-                }
-                (
-                    TreeNode::Provider(_, current_children),
-                    Element::Provider(next_value, next_children),
-                ) => update_children(
+            *current = next.clone();
+            changes.append(
+                update_children(current_children, next_children, ctx.with_parent(next), pass)
+                    .await?,
+            );
+        }
+        (TreeNode::Fragment(current_children), Element::Fragment(next_children)) => {
+            changes.append(update_children(current_children, next_children, ctx, pass).await?)
+        }
+        (TreeNode::Provider(_, current_children), Element::Provider(next_value, next_children)) => {
+            changes.append(
+                update_children(
                     current_children,
                     next_children,
-                    render_queue,
                     ctx.with_context(next_value),
-                ),
-                // The keys are equal, they were compared above
-                (TreeNode::Keyed(_, current_child), Element::Keyed(_, next_element)) => {
-                    render_queue.update(current_child.as_mut(), *next_element, ctx)
-                }
-                (TreeNode::Suspense(suspense), Element::Suspense(next_fallback, next_children)) => {
-                    render_queue.settle(unsafe { &mut *current }, ctx.clone());
-                    let children_ctx = suspense.children_ctx(&ctx);
-                    // Once revealed, the fallback is never shown again
-                    if let SuspenseState::Fallback(fallback) = &mut suspense.state {
-                        render_queue.update(fallback.as_mut(), *next_fallback, ctx);
-                    }
-                    update_children(
-                        &mut suspense.children,
-                        next_children,
-                        render_queue,
-                        children_ctx,
-                    );
-                }
-                (current_node, next) => replace_node(current_node, next, render_queue, ctx),
-            }
+                    pass,
+                )
+                .await?,
+            )
         }
-        RenderQueueItem::Settle { current, ctx } => {
-            let TreeNode::Suspense(suspense) = (unsafe { &mut *current }) else {
-                unreachable!("Only suspense boundaries are settled")
-            };
-            let pending =
-                !suspense.is_revealed() && suspense.children.iter().any(TreeNode::is_pending);
-            match std::mem::replace(&mut suspense.state, SuspenseState::Revealed) {
-                SuspenseState::Revealed => {}
-                SuspenseState::Unsettled(fallback) if pending => {
-                    let mut fallback = Box::new(TreeNode::from(fallback));
-                    render_queue.create(fallback.as_mut(), ctx);
-                    suspense.state = SuspenseState::Fallback(fallback);
-                }
-                SuspenseState::Fallback(fallback) if pending => {
-                    suspense.state = SuspenseState::Fallback(fallback);
-                }
-                previous => {
-                    // A boundary inside a detached subtree is mounted along with it
-                    if !ctx.detached {
-                        for child in &mut suspense.children {
-                            child.mount(&ctx.parent, &ctx.sibling, render_queue);
-                        }
-                    }
-                    if let SuspenseState::Fallback(fallback) = previous {
-                        render_queue.remove(*fallback, ctx.attached_parent());
-                    }
-                }
-            }
+        // The keys are equal, they were compared above
+        (TreeNode::Keyed(_, current_child), Element::Keyed(_, next_element)) => {
+            return visit(current_child, Work::Update(*next_element), ctx, pass).await;
         }
-        RenderQueueItem::Render { current, ctx } => {
-            let TreeNode::Component(component) = (unsafe { &mut *current }) else {
-                unreachable!("Only components are rendered")
-            };
-            let task = component.rendering.take().expect("Render was not started");
-            // Renders that don't finish on their first poll suspend, everything else is awaited.
-            // The channel also closes when the render finishes, before its output is ready.
-            match future::select(task.handle, Box::pin(task.suspended.recv())).await {
-                Either::Left((output, _)) => apply_render(component, output, render_queue, ctx)?,
-                Either::Right((Ok(()), handle)) => component.render_result = Some(Box::pin(handle)),
-                Either::Right((Err(_), handle)) => {
-                    apply_render(component, handle.await, render_queue, ctx)?
+        (TreeNode::Suspense(suspense), Element::Suspense(next_fallback, next_children)) => {
+            let children_ctx = suspense.children_ctx(&ctx);
+            changes.append(
+                update_children(&mut suspense.children, next_children, children_ctx, pass).await?,
+            );
+            // Once revealed, the fallback is never shown again
+            if let SuspenseState::Fallback(fallback) = &mut suspense.state {
+                changes.append(
+                    visit(fallback, Work::Update(*next_fallback), ctx.clone(), pass).await?,
+                );
+            }
+            changes.append(settle(suspense, ctx, pass).await?);
+        }
+        (node, next) => return replace_node(node, next, ctx, pass).await,
+    }
+    Ok(changes)
+}
+
+/// Runs after everything below a suspense boundary has been visited
+async fn settle<N, E, S>(
+    suspense: &mut TreeSuspense<N, E>,
+    ctx: RenderContext<N>,
+    pass: &Pass<S>,
+) -> Result<Changes<N>, E>
+where
+    N: From<String> + Send + Sync + 'static,
+    E: Send + 'static,
+    S: Spawn + Send + Sync + 'static,
+{
+    let pending = !suspense.is_revealed() && suspense.children.iter().any(TreeNode::is_pending);
+    let mut changes = Changes::default();
+    match mem::replace(&mut suspense.state, SuspenseState::Revealed) {
+        SuspenseState::Revealed => {}
+        SuspenseState::Unsettled(fallback) if pending => {
+            let mut fallback = Box::new(TreeNode::from(fallback));
+            changes = visit(&mut fallback, Work::Create, ctx, pass).await?;
+            suspense.state = SuspenseState::Fallback(fallback);
+        }
+        SuspenseState::Fallback(fallback) if pending => {
+            suspense.state = SuspenseState::Fallback(fallback);
+        }
+        previous => {
+            // A boundary inside a detached subtree is mounted along with it
+            if !ctx.detached {
+                for child in &mut suspense.children {
+                    child.mount(&ctx.parent, &ctx.sibling, &mut changes);
                 }
             }
+            if let SuspenseState::Fallback(fallback) = previous {
+                remove(*fallback, ctx.attached_parent(), &mut changes);
+            }
         }
-        RenderQueueItem::Remove { current, parent } => match current {
+    }
+    Ok(changes)
+}
+
+/// Removes a subtree that is no longer part of the tree.
+/// The parent is none if the nodes were never passed to the object model.
+fn remove<N, E>(node: TreeNode<N, E>, parent: Option<Arc<N>>, changes: &mut Changes<N>)
+where
+    N: From<String>,
+{
+    // The subtree is owned, so it is walked with a stack instead of recursion
+    let mut stack = vec![(node, parent)];
+    while let Some((node, parent)) = stack.pop() {
+        match node {
             TreeNode::Component(component) => {
-                render_queue.unmount(&component.effects);
+                changes.unmount(component.id);
                 if let Some(child) = component.child {
-                    render_queue.remove(*child, parent);
+                    stack.push((*child, parent));
                 }
             }
             TreeNode::Node(node, children) => {
                 if let Some(parent) = &parent {
-                    render_queue.remove_node(&node, parent);
+                    changes.remove_node(&node, parent);
                 }
                 for child in children {
-                    render_queue.remove(child, parent.as_ref().map(|_| Arc::clone(&node)));
+                    stack.push((child, parent.as_ref().map(|_| Arc::clone(&node))));
                 }
             }
             TreeNode::Fragment(children) | TreeNode::Provider(_, children) => {
                 for child in children {
-                    render_queue.remove(child, parent.clone());
+                    stack.push((child, parent.clone()));
                 }
             }
-            TreeNode::Keyed(_, child) => render_queue.remove(*child, parent),
+            TreeNode::Keyed(_, child) => stack.push((*child, parent)),
             TreeNode::Suspense(suspense) => {
                 let children_parent = if suspense.is_revealed() {
                     parent.clone()
@@ -791,68 +998,78 @@ where
                     None
                 };
                 if let SuspenseState::Fallback(fallback) = suspense.state {
-                    render_queue.remove(*fallback, parent);
+                    stack.push((*fallback, parent));
                 }
                 for child in suspense.children {
-                    render_queue.remove(child, children_parent.clone());
+                    stack.push((child, children_parent.clone()));
                 }
             }
-        },
+        }
     }
-    Ok(())
 }
 
 /// Children are matched by key if any of them has one and by position otherwise.
-fn update_children<N, E>(
+async fn update_children<N, E, S>(
     tree_nodes: &mut Vec<TreeNode<N, E>>,
     elements: Vec<Element<N, E>>,
-    render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
     ctx: RenderContext<N>,
-) where
-    N: From<String>,
+    pass: &Pass<S>,
+) -> Result<Changes<N>, E>
+where
+    N: From<String> + Send + Sync + 'static,
+    E: Send + 'static,
+    S: Spawn + Send + Sync + 'static,
 {
     if tree_nodes.iter().any(|node| node.key().is_some())
         || elements
             .iter()
             .any(|element| element_key(element).is_some())
     {
-        update_keyed_children(tree_nodes, elements, render_queue, ctx);
+        update_keyed_children(tree_nodes, elements, ctx, pass).await
     } else {
-        update_children_by_position(tree_nodes, elements, render_queue, ctx);
+        update_children_by_position(tree_nodes, elements, ctx, pass).await
     }
 }
 
-fn update_children_by_position<N, E>(
+async fn update_children_by_position<N, E, S>(
     tree_nodes: &mut Vec<TreeNode<N, E>>,
     mut elements: Vec<Element<N, E>>,
-    render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
     ctx: RenderContext<N>,
-) where
-    N: From<String>,
+    pass: &Pass<S>,
+) -> Result<Changes<N>, E>
+where
+    N: From<String> + Send + Sync + 'static,
+    E: Send + 'static,
+    S: Spawn + Send + Sync + 'static,
 {
-    let old_len = tree_nodes.len();
-
-    let kept = elements.len().min(old_len);
-    for tree_node in tree_nodes.drain(kept..).rev() {
-        render_queue.remove(tree_node, ctx.attached_parent());
-    }
-
+    let kept = elements.len().min(tree_nodes.len());
+    let removed: Vec<TreeNode<N, E>> = tree_nodes.drain(kept..).collect();
     tree_nodes.shrink_to_fit();
+    tree_nodes.extend(elements.split_off(kept).into_iter().map(TreeNode::from));
 
-    for element in elements.drain(tree_nodes.len()..) {
-        tree_nodes.push(TreeNode::from(element));
-    }
+    // New children are appended before the sibling of the whole list
+    let anchors = sibling_anchors(&tree_nodes[..kept], ctx.sibling.clone());
+    let mut updates = elements.into_iter().zip(anchors);
+    let mut changes = visit_all(
+        tree_nodes
+            .iter_mut()
+            .map(|tree_node| match updates.next() {
+                Some((element, sibling)) => visit(
+                    tree_node,
+                    Work::Update(element),
+                    ctx.with_sibling(sibling),
+                    pass,
+                ),
+                None => visit(tree_node, Work::Create, ctx.clone(), pass),
+            })
+            .collect(),
+    )
+    .await?;
 
-    for tree_node in tree_nodes.iter_mut().skip(old_len).rev() {
-        render_queue.create(tree_node, ctx.clone());
+    for tree_node in removed {
+        remove(tree_node, ctx.attached_parent(), &mut changes);
     }
-
-    let mut sibling = ctx.sibling.clone();
-    for (tree_node, element) in tree_nodes.iter_mut().zip(elements).rev() {
-        let next_sibling = tree_node.get_first_node();
-        render_queue.update(tree_node, element, ctx.with_sibling(sibling));
-        sibling = next_sibling;
-    }
+    Ok(changes)
 }
 
 /// Identifies a child in a keyed list.
@@ -874,13 +1091,16 @@ fn slots(keys: impl Iterator<Item = Option<Key>>) -> impl Iterator<Item = Slot> 
     })
 }
 
-fn update_keyed_children<N, E>(
+async fn update_keyed_children<N, E, S>(
     tree_nodes: &mut Vec<TreeNode<N, E>>,
     elements: Vec<Element<N, E>>,
-    render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
     ctx: RenderContext<N>,
-) where
-    N: From<String>,
+    pass: &Pass<S>,
+) -> Result<Changes<N>, E>
+where
+    N: From<String> + Send + Sync + 'static,
+    E: Send + 'static,
+    S: Spawn + Send + Sync + 'static,
 {
     let old_nodes = mem::take(tree_nodes);
     let mut old_indices = HashMap::with_capacity(old_nodes.len());
@@ -907,14 +1127,11 @@ fn update_keyed_children<N, E>(
         }
     }
 
-    for old_node in old_nodes.into_iter().flatten().rev() {
-        render_queue.remove(old_node, ctx.attached_parent());
-    }
-
-    // Matched children are moved right away so the new children and replaced nodes can be
+    // Matched children are moved first so the new children and replaced nodes can be
     // inserted relative to them later.
     // Going from the end, every child that is part of the longest increasing subsequence
     // of old indices is already in place, every other one is moved before the next matched child.
+    let mut changes = Changes::default();
     let old_order: Vec<usize> = matches
         .iter()
         .flatten()
@@ -934,7 +1151,7 @@ fn update_keyed_children<N, E>(
             nodes.clear();
             tree_node.collect_nodes(&mut nodes);
             for node in &nodes {
-                render_queue.move_node(node, &ctx.parent, &anchor);
+                changes.move_node(node, &ctx.parent, &anchor);
             }
         }
         if let Some(first_node) = tree_node.get_first_node() {
@@ -943,21 +1160,42 @@ fn update_keyed_children<N, E>(
     }
 
     // New children are not created yet, so only matched children can be siblings.
-    // The queue processes children front to back, so new children that share a sibling
+    // Children are visited front to back, so new children that share a sibling
     // are still inserted in order.
+    let mut anchors = Vec::with_capacity(tree_nodes.len());
     let mut sibling = ctx.sibling.clone();
-    for (tree_node, matched) in tree_nodes.iter_mut().zip(matches).rev() {
-        match matched {
-            Some((_, element)) => {
-                let first_node = tree_node.get_first_node();
-                render_queue.update(tree_node, element, ctx.with_sibling(sibling.clone()));
-                if first_node.is_some() {
-                    sibling = first_node;
-                }
+    for (tree_node, matched) in tree_nodes.iter().zip(&matches).rev() {
+        anchors.push(sibling.clone());
+        if matched.is_some() {
+            if let Some(first_node) = tree_node.get_first_node() {
+                sibling = Some(first_node);
             }
-            None => render_queue.create(tree_node, ctx.with_sibling(sibling.clone())),
         }
     }
+    anchors.reverse();
+
+    changes.append(
+        visit_all(
+            tree_nodes
+                .iter_mut()
+                .zip(matches)
+                .zip(anchors)
+                .map(|((tree_node, matched), sibling)| {
+                    let work = match matched {
+                        Some((_, element)) => Work::Update(element),
+                        None => Work::Create,
+                    };
+                    visit(tree_node, work, ctx.with_sibling(sibling), pass)
+                })
+                .collect(),
+        )
+        .await?,
+    );
+
+    for old_node in old_nodes.into_iter().flatten() {
+        remove(old_node, ctx.attached_parent(), &mut changes);
+    }
+    Ok(changes)
 }
 
 /// Marks the values that are part of a longest strictly increasing subsequence.
@@ -986,98 +1224,21 @@ fn longest_increasing_subsequence(values: &[usize]) -> Vec<bool> {
     in_sequence
 }
 
-/// Spawns the component's render with its pending state updates applied
-fn spawn_render<N, E, S>(
-    tree_component: &mut TreeComponent<N, E>,
-    signal_sender: &Sender<()>,
-    ctx: &RenderContext<N>,
-    spawner: &S,
-) where
-    N: From<String> + Send + 'static,
-    E: Send + 'static,
-    S: Spawn,
-{
-    while let Ok(state_update) = tree_component.updates.try_recv() {
-        state_update.apply(&mut tree_component.state);
-    }
-
-    let component = Arc::clone(&tree_component.component);
-    let hook = Hook::new(
-        signal_sender.clone(),
-        tree_component.updater.clone(),
-        tree_component.state.clone(),
-        tree_component.refs.clone(),
-        ctx.context.clone(),
-    );
-    let mut render_future: RenderFuture<N, E> = Box::pin(async_context::provide_async_context(
-        hook,
-        component.render(),
-    ));
-    let (suspended_sender, suspended) = bounded(1);
-    let signal_sender = signal_sender.clone();
-    let handle = spawner
-        .spawn_with_handle(async move {
-            let mut first_poll = true;
-            let mut suspended = false;
-            let output = future::poll_fn(|cx| {
-                let poll = render_future.as_mut().poll(cx);
-                if first_poll && poll.is_pending() {
-                    suspended = true;
-                    let _ = suspended_sender.try_send(());
-                }
-                first_poll = false;
-                poll
-            })
-            .await;
-            // A suspended render is picked up by the next render pass
-            if suspended {
-                let _ = signal_sender.try_send(());
-            }
-            output
-        })
-        .expect("Failed to spawn async task");
-
-    // A newer render replaces one that suspended before
-    tree_component.render_result = None;
-    tree_component.rendering = Some(RenderTask { handle, suspended });
-}
-
-/// Queues the child and effects of a finished render
-fn apply_render<N, E>(
-    tree_component: &mut TreeComponent<N, E>,
-    (element, hook): RenderOutput<N, E>,
-    render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
-    ctx: RenderContext<N>,
-) -> Result<(), E>
-where
-    N: From<String>,
-{
-    tree_component.queue_effects(hook.effects, render_queue, &ctx);
-    tree_component.state = hook.state;
-    tree_component.refs = hook.refs;
-    match tree_component.child {
-        Some(ref mut node) => render_queue.update(node.as_mut(), element?, ctx),
-        None => {
-            let mut child = Box::new(TreeNode::from(element?));
-            render_queue.create(child.as_mut(), ctx);
-            tree_component.child = Some(child);
-        }
-    }
-    Ok(())
-}
-
-fn replace_node<N, E>(
+async fn replace_node<N, E, S>(
     node: &mut TreeNode<N, E>,
     element: Element<N, E>,
-    render_queue: &mut RenderQueue<N, E, TreeNode<N, E>>,
     ctx: RenderContext<N>,
-) where
-    N: From<String>,
+    pass: &Pass<S>,
+) -> Result<Changes<N>, E>
+where
+    N: From<String> + Send + Sync + 'static,
+    E: Send + 'static,
+    S: Spawn + Send + Sync + 'static,
 {
-    let mut old_node = TreeNode::from(element);
-    std::mem::swap(node, &mut old_node);
-    render_queue.remove(old_node, ctx.attached_parent());
-    render_queue.create(node, ctx);
+    let old_node = mem::replace(node, TreeNode::from(element));
+    let mut changes = visit(node, Work::Create, ctx.clone(), pass).await?;
+    remove(old_node, ctx.attached_parent(), &mut changes);
+    Ok(changes)
 }
 
 #[cfg(test)]
@@ -2810,6 +2971,51 @@ mod tests {
                     let entries: Vec<String> = log.lock().unwrap().drain(..).collect();
                     assert_eq!(entries, expected);
                 }
+
+                handle.abort();
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn deeply_nested_components() {
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                /// Renders a chain of nested components that ends in a node
+                #[derive(PartialEq)]
+                struct Nested(usize);
+
+                #[async_trait]
+                impl Component for Nested {
+                    type Error = ();
+                    type Node = MockNode;
+
+                    async fn render(
+                        self: Arc<Self>,
+                    ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                        Ok(match self.0 {
+                            0 => Element::Node(MockNode(1), Vec::new()),
+                            depth => Element::Component(Arc::new(Nested(depth - 1))),
+                        })
+                    }
+                }
+
+                let inner_object_model = InnerMockObjectModel::new();
+                let object_model = MockObjectModel(inner_object_model.clone());
+                let root = Arc::new(MockNode(0));
+                let loop_root = root.clone();
+                let mut handle = tokio::task::spawn_local(async move {
+                    let element = Element::Component(Arc::new(Nested(2000)));
+                    super::render_loop(loop_root, element, TokioSpawner, object_model)
+                        .await
+                        .unwrap();
+                });
+
+                next_render_cycle(&inner_object_model, &mut handle).await;
+                inner_object_model
+                    .lock()
+                    .unwrap()
+                    .assert_children(&root, &[1], &[1], &[], 0);
 
                 handle.abort();
             })
