@@ -68,8 +68,9 @@ Widgets from other libraries such as libadwaita can be registered with `register
 GTK widgets can only be used on the main thread, while bloom moves components and nodes between
 threads. Nodes are therefore plain descriptions of widgets, and the renderer creates and updates
 the widgets on the GTK main context. Signal handlers and props must be `Send + Sync`,
-use `WidgetRef` instead of capturing widgets. Async components are run on the GTK main context, too,
-state updates from other threads are fine.
+use `WidgetRef` instead of capturing widgets. Component renders run as tasks on the GTK main context, too,
+so a slow render blocks the UI; move heavy work to another thread and await it.
+State updates from other threads are fine.
 
 ## Limitations
 * Containers supported as parents are `GtkBox`, `ListBox`, `FlowBox` and widgets with a single

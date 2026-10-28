@@ -71,7 +71,10 @@ pub mod prelude {
     };
 }
 
-/// Runs suspended component renders on the GTK main context
+/// Runs component renders on the GTK main context.
+/// Renders don't touch widgets, but running them on the main thread keeps `WidgetRef::get`
+/// and other thread-local GTK state working inside render functions.
+#[derive(Clone)]
 struct GlibSpawner;
 
 impl Spawn for GlibSpawner {
