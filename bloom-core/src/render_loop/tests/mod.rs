@@ -1,6 +1,7 @@
 //! The render loop is tested against a mock object model that tracks the children of every node.
 
 mod effects;
+mod error_boundary;
 mod keyed;
 mod nesting;
 mod rendering;
@@ -10,7 +11,7 @@ use std::{
     collections::{HashMap, VecDeque},
     hash::Hash,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -21,8 +22,8 @@ use async_trait::async_trait;
 use futures_util::{task::Spawn, Future, FutureExt};
 
 use crate::{
-    keyed, use_effect, use_ref_with_default, use_state, Component, Element, Fragment, ObjectModel,
-    Provider, Suspense,
+    keyed, use_effect, use_ref_with_default, use_state, CaughtError, Component, Element,
+    ErrorBoundary, Fragment, ObjectModel, Provider, Suspense,
 };
 
 use super::render_loop;
