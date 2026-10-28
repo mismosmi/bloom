@@ -9,6 +9,7 @@ use syn::{
 /// The core rsx macro.
 /// Transforms
 /// * `<Component prop="value" />` into `Component::builder().prop("value").build().into()`
+///   (except for `ref`, which is passed to `.dom_ref()` like for tags)
 /// * `<tag attribute="value" on_event={handler} />` into `tag("tag").attr("attribute", "value").on("event", handler).build().into()`
 /// * `"text"` into `"text".to_string().into()`
 ///
@@ -166,7 +167,14 @@ fn transform_props(attributes: Vec<NodeAttribute>) -> TokenStream {
             NodeAttribute::Attribute(attribute) => {
                 let name = &attribute.key;
 
-                if let Some(value) = attribute.value().map(attribute_value) {
+                // `ref` is a keyword, so it can't be a prop. Components take it through
+                // `dom_ref`, the same as tags do
+                if name.to_string() == "ref" {
+                    let value = attribute_value(attribute.value().expect("Refs must have a value"));
+                    quote! {
+                        .dom_ref(#value)
+                    }
+                } else if let Some(value) = attribute.value().map(attribute_value) {
                     quote! {
                         .#name(#value)
                     }
@@ -309,6 +317,21 @@ mod tests {
         assert_eq!(
             actual.to_string(),
             "tag (\"div\") . dom_ref (my_ref) . build () . into ()"
+        );
+    }
+
+    #[test]
+    fn pass_ref_to_component() {
+        let actual = super::transform_node(
+            rstml::parse2(quote! { <MyComponent ref={my_ref} /> })
+                .unwrap()
+                .into_iter()
+                .next()
+                .unwrap(),
+        );
+        assert_eq!(
+            actual.to_string(),
+            "MyComponent :: builder () . dom_ref (my_ref) . build () . into ()"
         );
     }
 

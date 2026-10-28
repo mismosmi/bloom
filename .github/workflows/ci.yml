@@ -18,6 +18,9 @@ jobs:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      # bloom-gtk links against GTK4, its tests need a display
+      - name: Install GTK
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev xvfb
       - name: Format
         run: cargo fmt --all --check
       - name: Find wasm-bindgen version
@@ -35,4 +38,4 @@ jobs:
       - name: Clippy (wasm)
         run: cargo clippy --target wasm32-unknown-unknown -p bloom-client -p bloom-client-example -p bloom-server-example --lib -- -D warnings
       - name: Test
-        run: cargo test --workspace
+        run: xvfb-run -a cargo test --workspace
