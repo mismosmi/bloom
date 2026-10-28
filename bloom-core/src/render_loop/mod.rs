@@ -50,19 +50,11 @@ enum ComponentWork<N, E> {
     NewProps(Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>),
 }
 
-/// Shared by all tasks of the render loop
+/// Shared by all tasks of the render loop, each task gets its own clone
+#[derive(Clone)]
 struct Pass<S> {
-    spawner: Arc<S>,
+    spawner: S,
     signal: Sender<()>,
-}
-
-impl<S> Clone for Pass<S> {
-    fn clone(&self) -> Self {
-        Self {
-            spawner: Arc::clone(&self.spawner),
-            signal: self.signal.clone(),
-        }
-    }
 }
 
 pub trait ObjectModel {
@@ -125,7 +117,8 @@ pub trait ObjectModel {
 /// arbitrary task runners such as tokio or async-std.
 /// Every component that renders is rendered and diffed in its own task on the spawner, so with a
 /// multi-threaded spawner sibling components render in parallel.
-/// The spawner is shared between these tasks, so it has to be `Send` and `Sync`.
+/// Each of these tasks gets its own clone of the spawner, which is shared with the tasks
+/// it spawns, so the spawner has to be `Clone`, `Send` and `Sync`.
 ///
 /// Each render pass has two phases:
 /// 1. Rendering visits the tree and collects the changes to the object model in document order,
@@ -197,7 +190,7 @@ pub async fn render_loop<N, E, S, P>(
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Send + Sync + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
     P: ObjectModel<Node = N>,
 {
     let mut tree_root = TreeRoot(TreeNode::from(element));
@@ -211,7 +204,7 @@ where
         .expect("Failed to send message to trigger initial render");
 
     let pass = Pass {
-        spawner: Arc::new(spawner),
+        spawner,
         signal: signal_sender,
     };
     let mut cleanups = Cleanups::default();

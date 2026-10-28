@@ -26,7 +26,7 @@ pub(super) fn visit<'a, N, E, S>(
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Send + Sync + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     Box::pin(async move {
         let mut ctx = ctx;
@@ -53,7 +53,7 @@ pub(super) async fn visit_in_task<N, E, S>(
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Send + Sync + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     let mut subtree = mem::replace(node, TreeNode::Fragment(Vec::new()));
     let task_pass = pass.clone();
@@ -90,7 +90,7 @@ pub(super) async fn visit_component<N, E, S>(
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Send + Sync + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     let TreeNode::Component(component) = node else {
         unreachable!("Only components are visited as components")
@@ -126,7 +126,7 @@ pub(super) async fn create<N, E, S>(
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Send + Sync + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     let mut changes = Changes::default();
     match node {
@@ -217,7 +217,7 @@ pub(super) async fn reload<N, E, S>(
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Send + Sync + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     match node {
         TreeNode::Component(_) => visit_component(node, ComponentWork::Reload, ctx, pass).await,
@@ -300,7 +300,7 @@ pub(super) async fn update<N, E, S>(
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Send + Sync + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     // A changed key means a different element, so it is replaced instead of
     // updated in place. Removing the old element runs its cleanups.
@@ -375,7 +375,7 @@ pub(super) async fn settle<N, E, S>(
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Send + Sync + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     let pending = !suspense.is_revealed() && suspense.children.iter().any(TreeNode::is_pending);
     let mut changes = Changes::default();
@@ -460,7 +460,7 @@ pub(super) async fn replace_node<N, E, S>(
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Send + Sync + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     let old_node = mem::replace(node, TreeNode::from(element));
     let mut changes = visit(node, Work::Create, ctx.clone(), pass).await?;

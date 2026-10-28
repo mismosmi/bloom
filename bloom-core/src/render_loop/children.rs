@@ -20,7 +20,7 @@ pub(super) async fn update_children<N, E, S>(
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Send + Sync + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     if tree_nodes.iter().any(|node| node.key().is_some())
         || elements
@@ -42,7 +42,7 @@ pub(super) async fn update_children_by_position<N, E, S>(
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Send + Sync + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     let kept = elements.len().min(tree_nodes.len());
     let removed: Vec<TreeNode<N, E>> = tree_nodes.drain(kept..).collect();
@@ -102,7 +102,7 @@ pub(super) async fn update_keyed_children<N, E, S>(
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Send + Sync + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     let old_nodes = mem::take(tree_nodes);
     let mut old_indices = HashMap::with_capacity(old_nodes.len());

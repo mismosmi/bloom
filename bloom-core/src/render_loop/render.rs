@@ -43,7 +43,7 @@ where
     where
         N: Send + Sync + 'static,
         E: Send + 'static,
-        S: Spawn + Send + Sync + 'static,
+        S: Spawn + Clone + Send + Sync + 'static,
     {
         if let Some(render_result) = self.render_result.take() {
             match run_or_suspend(render_result) {
@@ -72,7 +72,7 @@ where
     where
         N: Send + Sync + 'static,
         E: Send + 'static,
-        S: Spawn + Send + Sync + 'static,
+        S: Spawn + Clone + Send + Sync + 'static,
     {
         while let Ok(state_update) = self.updates.try_recv() {
             state_update.apply(&mut self.state);
@@ -119,7 +119,7 @@ where
     where
         N: Send + Sync + 'static,
         E: Send + 'static,
-        S: Spawn + Send + Sync + 'static,
+        S: Spawn + Clone + Send + Sync + 'static,
     {
         let mut changes = Changes::default();
         // Effects of a detached component only run once its nodes are shown

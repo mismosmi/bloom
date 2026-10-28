@@ -245,6 +245,7 @@ impl ObjectModel for MockObjectModel {
     }
 }
 
+#[derive(Clone)]
 struct TokioSpawner;
 
 impl Spawn for TokioSpawner {
