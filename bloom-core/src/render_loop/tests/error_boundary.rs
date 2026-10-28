@@ -6,7 +6,7 @@ fn node(value: i32) -> Element<MockNode, i32> {
 
 fn boundary(children: Vec<Element<MockNode, i32>>) -> Element<MockNode, i32> {
     ErrorBoundary::builder()
-        .fallback(|error| node(100 + error))
+        .fallback(|error| node(100 + *error))
         .children(children)
         .build()
         .into()
@@ -226,7 +226,7 @@ async fn nested_boundaries() {
         .run_until(async move {
             // The fallback of the inner boundary fails too, so the outer boundary catches it
             let inner_boundary = ErrorBoundary::builder()
-                .fallback(|error| fail_at(error + 10, 0, 0))
+                .fallback(|error| fail_at(*error + 10, 0, 0))
                 .children(vec![fail_at(1, 0, 0)])
                 .build()
                 .into();
@@ -313,6 +313,117 @@ async fn error_without_boundary_stops_the_render_loop() {
             let (_inner, _root, handle) =
                 start_render_loop(Element::Fragment(vec![node(1), fail_at(2, 0, 0)]));
             assert_eq!(handle.await.unwrap(), Err(2));
+        })
+        .await;
+}
+
+/// Fails while the flag is set
+struct FailIf(Arc<AtomicBool>, i32);
+
+impl PartialEq for FailIf {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+#[async_trait]
+impl Component for FailIf {
+    type Error = i32;
+    type Node = MockNode;
+
+    async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+        if self.0.load(Ordering::SeqCst) {
+            return Err(self.1);
+        }
+        Ok(node(self.1))
+    }
+}
+
+/// Renders a boundary around a child that fails while the flag is set
+/// and passes the caught errors to the sender
+struct Owner {
+    fail: Arc<AtomicBool>,
+    errors: Sender<CaughtError<i32>>,
+}
+
+impl PartialEq for Owner {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+#[async_trait]
+impl Component for Owner {
+    type Error = i32;
+    type Node = MockNode;
+
+    async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+        let errors = self.errors.clone();
+        Ok(Element::Fragment(vec![
+            ErrorBoundary::builder()
+                .fallback(move |error: CaughtError<i32>| {
+                    let value = 100 + *error;
+                    errors.try_send(error).unwrap();
+                    node(value)
+                })
+                .children(vec![
+                    node(1),
+                    Element::Component(Arc::new(FailIf(self.fail.clone(), 2))),
+                ])
+                .build()
+                .into(),
+            node(3),
+        ]))
+    }
+}
+
+#[tokio::test]
+async fn dismiss_shows_children_again() {
+    tokio::task::LocalSet::new()
+        .run_until(async move {
+            let fail = Arc::new(AtomicBool::new(true));
+            let (errors, caught) = async_channel::unbounded();
+            let element = Element::Component(Arc::new(Owner {
+                fail: fail.clone(),
+                errors,
+            }));
+            let (inner, root, mut handle) = start_render_loop(element);
+
+            next_cycle(&inner, &mut handle).await;
+            inner
+                .lock()
+                .unwrap()
+                .assert_children(&root, &[102, 3], &[1, 3, 102], &[1], 0);
+            let error = caught.try_recv().unwrap();
+            assert_eq!(*error, 2);
+
+            // Dismissing while the child still fails shows a new fallback
+            error.dismiss();
+            next_cycle(&inner, &mut handle).await;
+            inner
+                .lock()
+                .unwrap()
+                .assert_children(&root, &[102, 3], &[1, 102], &[1, 102], 0);
+            let error = caught.try_recv().unwrap();
+
+            fail.store(false, Ordering::SeqCst);
+            error.dismiss();
+            next_cycle(&inner, &mut handle).await;
+            inner
+                .lock()
+                .unwrap()
+                .assert_children(&root, &[1, 2, 3], &[1, 2], &[102], 0);
+            assert!(caught.try_recv().is_err());
+
+            // A stale error doesn't affect the children
+            error.dismiss();
+            next_cycle(&inner, &mut handle).await;
+            inner
+                .lock()
+                .unwrap()
+                .assert_children(&root, &[1, 2, 3], &[], &[], 0);
+
+            handle.abort();
         })
         .await;
 }

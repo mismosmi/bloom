@@ -1,4 +1,10 @@
-use std::{mem, sync::Arc};
+use std::{
+    mem,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use futures_util::{
     future,
@@ -7,8 +13,11 @@ use futures_util::{
 };
 
 use crate::{
-    commit::Changes, component::ComponentDiff, error_boundary::Fallback,
-    render_context::RenderContext, Element,
+    commit::Changes,
+    component::ComponentDiff,
+    error_boundary::{Dismiss, Fallback},
+    render_context::RenderContext,
+    CaughtError, Element,
 };
 
 use super::{
@@ -387,11 +396,25 @@ where
     S: Spawn + Clone + Send + Sync + 'static,
 {
     Box::pin(async move {
-        // A boundary that failed keeps its fallback and ignores the next children
-        if boundary.failed {
-            return reload_children(&mut boundary.children, &ctx, pass).await;
-        }
         boundary.fallback = fallback;
+        if let Some(dismissed) = &boundary.failed {
+            // A boundary that failed keeps its fallback and ignores the next children
+            if !dismissed.load(Ordering::SeqCst) {
+                return reload_children(&mut boundary.children, &ctx, pass).await;
+            }
+            // The error was dismissed, so the children are created again in place of the fallback
+            boundary.failed = None;
+            let fallback = mem::replace(
+                &mut boundary.children,
+                next_children.into_iter().map(TreeNode::from).collect(),
+            );
+            let visited = create_children(&mut boundary.children, ctx.clone(), pass).await;
+            let mut removed = Changes::default();
+            for node in fallback {
+                remove(node, ctx.attached_parent(), &mut removed);
+            }
+            return catch(boundary, chain(visited, removed), ctx, pass).await;
+        }
         let visited =
             update_children(&mut boundary.children, next_children, ctx.clone(), pass).await;
         catch(boundary, visited, ctx, pass).await
@@ -520,7 +543,7 @@ where
     S: Spawn + Clone + Send + Sync + 'static,
 {
     let failure = match visited {
-        Err(failure) if !boundary.failed => failure,
+        Err(failure) if boundary.failed.is_none() => failure,
         visited => return visited,
     };
     let mut changes = failure.changes;
@@ -528,10 +551,17 @@ where
     for child in boundary.children.drain(..) {
         remove(child, ctx.attached_parent(), &mut changes);
     }
-    boundary.failed = true;
+    let dismissed = Arc::new(AtomicBool::new(false));
+    boundary.failed = Some(dismissed.clone());
+    let dismiss = Dismiss {
+        dismissed,
+        owner: ctx.owner.clone(),
+        signal: pass.signal.clone(),
+    };
+    let error = CaughtError::new(failure.error, Some(dismiss));
     boundary
         .children
-        .push(TreeNode::from((boundary.fallback)(failure.error)));
+        .push(TreeNode::from((boundary.fallback)(error)));
     changes.merge(create_children(&mut boundary.children, ctx, pass).await)?;
     Ok(changes)
 }

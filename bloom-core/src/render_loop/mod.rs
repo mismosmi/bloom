@@ -81,7 +81,7 @@ fn chain<N, E>(visited: Visited<N, E>, changes: Changes<N>) -> Visited<N, E> {
 }
 
 /// Levels of nested nodes that are visited in one task before continuing in a new one
-const TASK_DEPTH: usize = 64;
+const TASK_DEPTH: usize = 32;
 
 /// What a render pass does with a subtree
 enum Work<N, E>

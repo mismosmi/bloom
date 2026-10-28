@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 
 use futures_util::task::{Spawn, SpawnExt};
 
@@ -29,7 +29,9 @@ where
             }
             // A suspended render that is still waiting is replaced if the state changed
             ComponentWork::Reload => {
-                !self.updates.is_empty() || (self.render_result.is_none() && self.child.is_none())
+                !self.updates.is_empty()
+                    || self.rerender.load(Ordering::SeqCst)
+                    || (self.render_result.is_none() && self.child.is_none())
             }
         }
     }
@@ -41,6 +43,7 @@ where
         E: Send + 'static,
         S: Spawn + Clone + Send + Sync + 'static,
     {
+        let ctx = ctx.with_owner(self.rerender.clone());
         if let Some(render_result) = self.render_result.take() {
             match run_or_suspend(render_result) {
                 RunOrSuspendResult::Suspend(render_result) => {
@@ -72,6 +75,7 @@ where
 
         // A newer render replaces one that suspended before
         self.render_result = None;
+        self.rerender.store(false, Ordering::SeqCst);
         let hook = Hook::new(
             pass.signal.clone(),
             self.updater.clone(),
@@ -117,6 +121,7 @@ where
         self.refs = hook.refs;
         // The effects of a failed render don't run, the component keeps its previous child
         let element = element.map_err(Failure::new)?;
+        let ctx = ctx.with_owner(self.rerender.clone());
         let mut changes = Changes::default();
         // Effects of a detached component only run once its nodes are shown
         if ctx.detached {

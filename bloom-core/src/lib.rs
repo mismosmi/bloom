@@ -69,7 +69,7 @@ pub use component::Component;
 pub use context::{_get_context, use_context, Provider, ProviderBuilder};
 pub use effect::use_effect;
 pub use element::{keyed, Element};
-pub use error_boundary::{ErrorBoundary, ErrorBoundaryBuilder};
+pub use error_boundary::{CaughtError, ErrorBoundary, ErrorBoundaryBuilder};
 pub use fragment::{Fragment, FragmentBuilder};
 pub use key::Key;
 pub use object_ref::{use_ref, use_ref_with_default};

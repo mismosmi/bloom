@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     mem,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
 };
@@ -39,6 +39,8 @@ where
     pub(super) refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
     /// Effects of a detached component only run once its nodes are shown
     pub(super) deferred_effects: Option<Vec<(u64, Effect)>>,
+    /// Set when an error below the component is dismissed, so it renders again
+    pub(super) rerender: Arc<AtomicBool>,
 }
 
 impl<N, E> TreeComponent<N, E>
@@ -57,6 +59,7 @@ where
             render_result: None,
             refs: HashMap::new(),
             deferred_effects: None,
+            rerender: Arc::default(),
         }
     }
 }
@@ -104,8 +107,9 @@ where
     N: From<String>,
 {
     pub(super) fallback: Fallback<N, E>,
-    /// Once a child failed, the children are replaced by the fallback for good
-    pub(super) failed: bool,
+    /// Once a child failed, the children are replaced by the fallback until the error is dismissed.
+    /// The flag is set when it is dismissed.
+    pub(super) failed: Option<Arc<AtomicBool>>,
     pub(super) children: Vec<TreeNode<N, E>>,
 }
 
@@ -392,7 +396,7 @@ where
             }),
             PendingKind::ErrorBoundary(fallback) => TreeNode::ErrorBoundary(TreeErrorBoundary {
                 fallback,
-                failed: false,
+                failed: None,
                 children: self.children,
             }),
         }

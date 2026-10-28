@@ -42,12 +42,17 @@ Wrap components in an `ErrorBoundary` to catch their errors. When one of the chi
 and the fallback, built from the error, is shown in their place:
 ```rust
 rsx!(
-    <ErrorBoundary fallback={|error: MyError| rsx!(<div>{error.to_string()}</div>)}>
+    <ErrorBoundary fallback={|error: CaughtError<MyError>| rsx!(
+        <div>{error.to_string()}</div>
+        <button on_click={move |_| error.dismiss()}>"Try again"</button>
+    )}>
         <Profile />
     </ErrorBoundary>
 )
 ```
-The fallback stays until the boundary is created again, e.g. by changing its key.
+The fallback gets a `CaughtError`, which dereferences to the error and is cheap to clone.
+The fallback stays until the error is dismissed with `dismiss()`, which renders the component around the
+boundary again and creates the children from scratch, or until the boundary is created again, e.g. by changing its key.
 Errors of the fallback itself, and errors outside of any boundary, are passed on to the next boundary above
 or end the render loop.
 

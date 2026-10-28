@@ -78,7 +78,7 @@ mod tests {
         let div = |children| bloom_html::tag::div().build().children(children);
         let boundary = |children| {
             bloom_core::ErrorBoundary::builder()
-                .fallback(|error: String| bloom_html::text(error))
+                .fallback(|error: bloom_core::CaughtError<String>| bloom_html::text(error.as_str()))
                 .children(children)
                 .build()
                 .into()

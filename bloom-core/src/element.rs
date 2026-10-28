@@ -26,7 +26,7 @@ where
     Suspense(Box<Element<Node, Error>>, Vec<Element<Node, Error>>),
     /// Shows the element built by the function from the error of a child, see [crate::ErrorBoundary].
     ErrorBoundary(
-        Arc<dyn Fn(Error) -> Element<Node, Error> + Send + Sync>,
+        Arc<dyn Fn(crate::CaughtError<Error>) -> Element<Node, Error> + Send + Sync>,
         Vec<Element<Node, Error>>,
     ),
 }

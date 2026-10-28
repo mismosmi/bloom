@@ -1,4 +1,7 @@
-use std::{any::Any, sync::Arc};
+use std::{
+    any::Any,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use crate::context::ContextMap;
 
@@ -11,6 +14,8 @@ pub(crate) struct RenderContext<N> {
     pub(crate) detached: bool,
     /// How many nodes deep this node is nested since the last task on the spawner
     pub(crate) depth: usize,
+    /// Set to make the closest component above render again
+    pub(crate) owner: Option<Arc<AtomicBool>>,
 }
 
 impl<N> Clone for RenderContext<N> {
@@ -21,6 +26,7 @@ impl<N> Clone for RenderContext<N> {
             context: self.context.clone(),
             detached: self.detached,
             depth: self.depth,
+            owner: self.owner.clone(),
         }
     }
 }
@@ -33,6 +39,7 @@ impl<N> RenderContext<N> {
             context,
             detached: false,
             depth: 0,
+            owner: None,
         }
     }
 
@@ -43,6 +50,7 @@ impl<N> RenderContext<N> {
             context: self.context.clone(),
             detached: self.detached,
             depth: self.depth,
+            owner: self.owner.clone(),
         }
     }
 
@@ -53,6 +61,7 @@ impl<N> RenderContext<N> {
             context: self.context.clone(),
             detached: self.detached,
             depth: self.depth,
+            owner: self.owner.clone(),
         }
     }
 
@@ -63,6 +72,7 @@ impl<N> RenderContext<N> {
             context: self.context.clone(),
             detached: self.detached,
             depth: self.depth,
+            owner: self.owner.clone(),
         }
     }
 
@@ -75,6 +85,7 @@ impl<N> RenderContext<N> {
             context: Arc::new(new_context),
             detached: self.detached,
             depth: self.depth,
+            owner: self.owner.clone(),
         }
     }
 
@@ -82,6 +93,13 @@ impl<N> RenderContext<N> {
         Self {
             detached: true,
             depth: self.depth,
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn with_owner(&self, owner: Arc<AtomicBool>) -> Self {
+        Self {
+            owner: Some(owner),
             ..self.clone()
         }
     }
@@ -108,6 +126,7 @@ impl<N> RenderContext<N> {
             context: Arc::new(new_context),
             detached: self.detached,
             depth: self.depth,
+            owner: self.owner.clone(),
         }
     }
 }
