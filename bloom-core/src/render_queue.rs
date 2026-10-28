@@ -3,7 +3,7 @@ use std::{any::Any, cell::RefCell, mem, rc::Rc, sync::Arc};
 use crate::{
     context::ContextMap,
     effect::{Cleanup, Effect},
-    Element,
+    Element, ObjectModel,
 };
 
 pub(crate) struct RenderContext<N> {
@@ -132,6 +132,33 @@ where
         current: *mut TN,
         ctx: RenderContext<N>,
     },
+    /// Waits for a component's render, which was started when the component was queued
+    Render {
+        current: *mut TN,
+        ctx: RenderContext<N>,
+    },
+}
+
+/// A change to the object model, applied when the render pass is committed
+pub(crate) enum NodeOperation<N> {
+    Create {
+        node: Arc<N>,
+        parent: Arc<N>,
+        sibling: Option<Arc<N>>,
+    },
+    Remove {
+        node: Arc<N>,
+        parent: Arc<N>,
+    },
+    Move {
+        node: Arc<N>,
+        parent: Arc<N>,
+        sibling: Option<Arc<N>>,
+    },
+    Update {
+        node: Arc<N>,
+        next: Arc<N>,
+    },
 }
 
 /// The cleanups of a component's effects, kept from one render pass to the next
@@ -148,6 +175,7 @@ where
     N: From<String>,
 {
     queue: Vec<RenderQueueItem<N, E, TN>>,
+    operations: Vec<NodeOperation<N>>,
     effects: Vec<(EffectSlot, Vec<(u64, Effect)>)>,
     unmounted: Vec<EffectSlot>,
 }
@@ -159,6 +187,7 @@ where
     pub(crate) fn new() -> Self {
         Self {
             queue: Vec::new(),
+            operations: Vec::new(),
             effects: Vec::new(),
             unmounted: Vec::new(),
         }
@@ -198,16 +227,66 @@ where
         self.queue.pop()
     }
 
+    pub(crate) fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    /// Passes every item queued after the first `start` items through the callback
+    pub(crate) fn map_queued_since(
+        &mut self,
+        start: usize,
+        mut callback: impl FnMut(RenderQueueItem<N, E, TN>) -> RenderQueueItem<N, E, TN>,
+    ) {
+        for item in self.queue.split_off(start) {
+            self.queue.push(callback(item));
+        }
+    }
+
+    pub(crate) fn create_node(&mut self, node: &Arc<N>, parent: &Arc<N>, sibling: &Option<Arc<N>>) {
+        self.operations.push(NodeOperation::Create {
+            node: Arc::clone(node),
+            parent: Arc::clone(parent),
+            sibling: sibling.clone(),
+        })
+    }
+
+    pub(crate) fn remove_node(&mut self, node: &Arc<N>, parent: &Arc<N>) {
+        self.operations.push(NodeOperation::Remove {
+            node: Arc::clone(node),
+            parent: Arc::clone(parent),
+        })
+    }
+
+    pub(crate) fn move_node(&mut self, node: &Arc<N>, parent: &Arc<N>, sibling: &Option<Arc<N>>) {
+        self.operations.push(NodeOperation::Move {
+            node: Arc::clone(node),
+            parent: Arc::clone(parent),
+            sibling: sibling.clone(),
+        })
+    }
+
+    pub(crate) fn update_node(&mut self, node: &Arc<N>, next: &Arc<N>) {
+        self.operations.push(NodeOperation::Update {
+            node: Arc::clone(node),
+            next: Arc::clone(next),
+        })
+    }
+
     pub(crate) fn queue_effects(&mut self, slot: &EffectSlot, effects: Vec<(u64, Effect)>) {
         self.effects.push((Rc::clone(slot), effects));
     }
 
-    /// Runs the cleanups of an unmounted component after the render pass
+    /// Runs the cleanups of an unmounted component when the render pass is committed
     pub(crate) fn unmount(&mut self, slot: &EffectSlot) {
         self.unmounted.push(Rc::clone(slot));
     }
 
-    pub(crate) fn run_effects(&mut self) {
+    /// Applies the render pass in one go without yielding in between:
+    /// first all cleanups run, then the object model is updated and finally the effects run.
+    pub(crate) fn commit<P>(&mut self, object_model: &mut P)
+    where
+        P: ObjectModel<Node = N>,
+    {
         for slot in self.unmounted.drain(..) {
             let mut slot = slot.borrow_mut();
             slot.unmounted = true;
@@ -216,31 +295,61 @@ where
             }
         }
 
+        // The effects whose argument changed, they run once the object model is updated
+        let mut pending = Vec::new();
         for (slot, effects) in self.effects.drain(..) {
-            let mut slot = slot.borrow_mut();
-            if slot.unmounted {
+            let mut slot_ref = slot.borrow_mut();
+            if slot_ref.unmounted {
                 continue;
             }
 
-            let mut cleanups = mem::take(&mut slot.cleanups).into_iter();
+            let mut cleanups = mem::take(&mut slot_ref.cleanups).into_iter();
             let mut next_cleanups = Vec::with_capacity(effects.len());
-            for (effect_hash, effect) in effects {
+            let mut changed = Vec::new();
+            for (index, (effect_hash, effect)) in effects.into_iter().enumerate() {
                 match cleanups.next() {
                     // The arguments haven't changed, so the effect doesn't run again
                     Some((cleanup_hash, cleanup)) if cleanup_hash == effect_hash => {
                         next_cleanups.push((cleanup_hash, cleanup));
+                        continue;
                     }
-                    Some((_, cleanup)) => {
-                        cleanup.run();
-                        next_cleanups.push((effect_hash, effect.run()));
-                    }
-                    None => next_cleanups.push((effect_hash, effect.run())),
+                    Some((_, cleanup)) => cleanup.run(),
+                    None => {}
                 }
+                // Replaced by the effect's cleanup once it has run
+                next_cleanups.push((effect_hash, Cleanup::from(())));
+                changed.push((index, effect));
             }
             for (_, cleanup) in cleanups {
                 cleanup.run();
             }
-            slot.cleanups = next_cleanups;
+            slot_ref.cleanups = next_cleanups;
+            drop(slot_ref);
+            pending.push((slot, changed));
+        }
+
+        for operation in self.operations.drain(..) {
+            match operation {
+                NodeOperation::Create {
+                    node,
+                    parent,
+                    sibling,
+                } => object_model.create(&node, &parent, &sibling),
+                NodeOperation::Remove { node, parent } => object_model.remove(&node, &parent),
+                NodeOperation::Move {
+                    node,
+                    parent,
+                    sibling,
+                } => object_model.move_node(&node, &parent, &sibling),
+                NodeOperation::Update { node, next } => object_model.update(&node, &next),
+            }
+        }
+
+        for (slot, changed) in pending {
+            for (index, effect) in changed {
+                let cleanup = effect.run();
+                slot.borrow_mut().cleanups[index].1 = cleanup;
+            }
         }
     }
 }
