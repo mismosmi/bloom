@@ -45,6 +45,36 @@ tag("div")
   ])
 ```
 
+## Root
+A single root element is returned as is, multiple roots are wrapped in a fragment:
+```rust
+rsx!(<div /><span />)
+```
+becomes
+```rust
+vec![tag("div").build().into(), tag("span").build().into()].into()
+```
+
+## Keys
+`key` identifies an element among its siblings so it keeps its state when its list is reordered.
+A tag or component with a `key` is wrapped in a keyed element instead of passing it on as an attribute or prop:
+```rust
+rsx!(<li key={item.id} />)
+rsx!(<Row key={item.id} />)
+```
+becomes
+```rust
+keyed(item.id, tag("li").build())
+keyed(item.id, Row::builder().build())
+```
+Like `tag`, a `keyed` function must be in scope (bloom-html's prelude re-exports the one from bloom-core).
+`bloom_core::Fragment` is a component too, so a keyed `<Fragment>` keys several elements at once:
+```rust
+use bloom_core::Fragment;
+
+rsx!(<Fragment key={item.id}><dt /><dd /></Fragment>)
+```
+
 ## Components
 Uppercase tags are transformed to a builder pattern:
 ```rust

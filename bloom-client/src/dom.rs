@@ -251,6 +251,24 @@ impl ObjectModel for Dom {
             .expect("Failed to remove child node");
     }
 
+    fn move_node(
+        &mut self,
+        node: &std::sync::Arc<Self::Node>,
+        parent: &std::sync::Arc<Self::Node>,
+        sibling: &Option<std::sync::Arc<Self::Node>>,
+    ) {
+        let parent_node = self.nodes.get(parent).expect("Parent not found").node();
+        let current_node = self.nodes.get(node).expect("Node not found").node();
+        let sibling_node = sibling
+            .as_ref()
+            .map(|sibling| self.nodes.get(sibling).expect("Sibling not found").node());
+
+        // Inserting a node that is already attached moves it
+        parent_node
+            .insert_before(current_node, sibling_node)
+            .expect("Failed to move node");
+    }
+
     fn update(&mut self, node: &std::sync::Arc<Self::Node>, next: &std::sync::Arc<Self::Node>) {
         let current_state = self.nodes.remove(node).expect("Node not found");
         let current_node = current_state.clear_callbacks();
@@ -408,5 +426,30 @@ mod tests {
 
         dom.remove(&next, &root);
         assert_eq!(dom_root.child_nodes().length(), 0);
+    }
+
+    #[wasm_bindgen_test]
+    fn move_node() {
+        let mut dom = Dom::new();
+
+        let dom_root: web_sys::Node = document().create_element("div").unwrap().into();
+        let root = Arc::new(div().build().into());
+        dom.register(&root, dom_root.clone());
+        let first = Arc::new(HtmlNode::text("first".to_string()));
+        dom.create(&first, &root, &None);
+        let second = Arc::new(HtmlNode::text("second".to_string()));
+        dom.create(&second, &root, &None);
+        let first_dom_node = dom_root.child_nodes().item(0).unwrap();
+
+        dom.move_node(&first, &root, &None);
+        assert_eq!(dom_root.text_content().unwrap(), "secondfirst");
+        assert_eq!(
+            dom_root.child_nodes().item(1).unwrap(),
+            first_dom_node,
+            "Node should be moved, not recreated"
+        );
+
+        dom.move_node(&first, &root, &Some(second));
+        assert_eq!(dom_root.text_content().unwrap(), "firstsecond");
     }
 }
