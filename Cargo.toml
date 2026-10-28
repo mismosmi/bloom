@@ -7,6 +7,8 @@ members = [
     "bloom-ssr",
     "bloom-client",
     "bloom-client-example",
+    "bloom-gtk",
+    "bloom-gtk-example",
     "bloom-server-example",
     "bloom-rsx",
     "bloom-macro",
