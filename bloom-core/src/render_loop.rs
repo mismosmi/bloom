@@ -105,19 +105,9 @@ where
         }
     }
 
-    /// Renders the component if it has to and diffs its child
-    async fn visit<S>(
-        &mut self,
-        work: ComponentWork<N, E>,
-        ctx: RenderContext<N>,
-        pass: &Pass<S>,
-    ) -> Result<Changes<N>, E>
-    where
-        N: Send + Sync + 'static,
-        E: Send + 'static,
-        S: Spawn + Send + Sync + 'static,
-    {
-        let render = match work {
+    /// Whether the component has to render in this render pass
+    fn needs_render(&mut self, work: ComponentWork<N, E>) -> bool {
+        match work {
             ComponentWork::Create => true,
             ComponentWork::NewProps(component) => {
                 self.component = component;
@@ -127,11 +117,16 @@ where
             ComponentWork::Reload => {
                 !self.updates.is_empty() || (self.render_result.is_none() && self.child.is_none())
             }
-        };
-        if render {
-            return self.render(ctx, pass).await;
         }
+    }
 
+    /// Picks up a suspended render that has finished and reloads the child
+    async fn reload<S>(&mut self, ctx: RenderContext<N>, pass: &Pass<S>) -> Result<Changes<N>, E>
+    where
+        N: Send + Sync + 'static,
+        E: Send + 'static,
+        S: Spawn + Send + Sync + 'static,
+    {
         if let Some(render_result) = self.render_result.take() {
             match run_or_suspend(render_result) {
                 RunOrSuspendResult::Suspend(render_result) => {
@@ -605,7 +600,7 @@ pub trait ObjectModel {
 /// The spawner-argument is
 /// an object that implements the Spawn-trait so bloom can spawn async tasks on
 /// arbitrary task runners such as tokio or async-std.
-/// Every component is rendered and diffed in its own task on the spawner, so with a
+/// Every component that renders is rendered and diffed in its own task on the spawner, so with a
 /// multi-threaded spawner sibling components render in parallel.
 /// The spawner is shared between these tasks, so it has to be `Send` and `Sync`.
 ///
@@ -715,8 +710,9 @@ where
 }
 
 /// Diffs a subtree and collects its changes in document order.
-/// Each component is visited in its own task on the spawner, so siblings are rendered and diffed
-/// in parallel and the stack only grows with the nesting of nodes within a single component.
+/// Components that render are visited in their own task on the spawner, so siblings are rendered
+/// and diffed in parallel. Everything else is visited in place and continues in a new task
+/// every `TASK_DEPTH` levels, so deeply nested trees fit on the stack.
 fn visit<'a, N, E, S>(
     node: &'a mut TreeNode<N, E>,
     work: Work<N, E>,
@@ -731,7 +727,7 @@ where
     Box::pin(async move {
         let mut ctx = ctx;
         // Deeply nested nodes continue in a new task so they fit on the stack
-        if ctx.depth >= TASK_DEPTH && !matches!(node, TreeNode::Component(_)) {
+        if ctx.depth >= TASK_DEPTH {
             return visit_in_task(node, work, ctx, pass).await;
         }
         ctx.depth += 1;
@@ -779,7 +775,8 @@ async fn visit_all<N, E>(visits: Vec<Visit<'_, N, E>>) -> Result<Changes<N>, E> 
     Ok(changes)
 }
 
-/// Moves the component into a task on the spawner and puts it back once it is visited
+/// A component that renders is moved into a task on the spawner, so sibling components render
+/// in parallel, and put back once it is visited. Other components are visited in place.
 async fn visit_component<N, E, S>(
     node: &mut TreeNode<N, E>,
     work: ComponentWork<N, E>,
@@ -791,9 +788,16 @@ where
     E: Send + 'static,
     S: Spawn + Send + Sync + 'static,
 {
+    let TreeNode::Component(component) = node else {
+        unreachable!("Only components are visited as components")
+    };
+    if !component.needs_render(work) {
+        return component.reload(ctx, pass).await;
+    }
+
     let TreeNode::Component(mut component) = mem::replace(node, TreeNode::Fragment(Vec::new()))
     else {
-        unreachable!("Only components are visited in a task")
+        unreachable!("Only components are visited as components")
     };
     let task_pass = pass.clone();
     let mut ctx = ctx;
@@ -801,7 +805,7 @@ where
     let task = pass
         .spawner
         .spawn_with_handle(async move {
-            let result = component.visit(work, ctx, &task_pass).await;
+            let result = component.render(ctx, &task_pass).await;
             (component, result)
         })
         .expect("Failed to spawn async task");
@@ -3132,22 +3136,85 @@ mod tests {
                     }
                 }
 
+                // The second pass reloads the chain without rendering it again
+                let mut harness = StepsHarness::start(vec![vec![], vec![]], |_| {
+                    Element::Component(Arc::new(Nested(2000)))
+                });
+                let root = harness.root.clone();
+
+                harness
+                    .next_cycle()
+                    .await
+                    .assert_children(&root, &[1], &[1], &[], 0);
+                harness.next_cycle().await.assert_noop();
+
+                harness.handle.abort();
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn spawns_only_for_rendering_components() {
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                #[derive(Clone)]
+                struct CountingSpawner(Arc<AtomicUsize>);
+
+                impl Spawn for CountingSpawner {
+                    fn spawn_obj(
+                        &self,
+                        future: futures_util::task::FutureObj<'static, ()>,
+                    ) -> Result<(), futures_util::task::SpawnError> {
+                        self.0.fetch_add(1, Ordering::SeqCst);
+                        tokio::spawn(future.map(|_| ()));
+                        Ok(())
+                    }
+                }
+
+                #[derive(PartialEq)]
+                struct Leaf(i32);
+
+                #[async_trait]
+                impl Component for Leaf {
+                    type Error = ();
+                    type Node = MockNode;
+
+                    async fn render(
+                        self: Arc<Self>,
+                    ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
+                        Ok(Element::Node(MockNode(self.0), Vec::new()))
+                    }
+                }
+
+                // Only the last leaf gets new props in the second step
+                let steps = vec![(1..=100).collect(), (1..100).chain([1000]).collect()];
+                let render: fn(&[i32]) -> Element<MockNode, ()> = |ids| {
+                    Element::fragment(
+                        ids.iter()
+                            .map(|id| Element::Component(Arc::new(Leaf(*id))))
+                            .collect(),
+                    )
+                };
+
+                let spawned = Arc::new(AtomicUsize::new(0));
                 let inner_object_model = InnerMockObjectModel::new();
                 let object_model = MockObjectModel(inner_object_model.clone());
-                let root = Arc::new(MockNode(0));
-                let loop_root = root.clone();
+                let spawner = CountingSpawner(spawned.clone());
                 let mut handle = tokio::task::spawn_local(async move {
-                    let element = Element::Component(Arc::new(Nested(2000)));
-                    super::render_loop(loop_root, element, TokioSpawner, object_model)
+                    let root = Arc::new(MockNode(0));
+                    let element = Element::Component(Arc::new(Steps { steps, render }));
+                    super::render_loop(root, element, spawner, object_model)
                         .await
                         .unwrap();
                 });
 
+                // The next pass may already be rendering when a cycle is over,
+                // so the spawns are counted once both passes are done
                 next_render_cycle(&inner_object_model, &mut handle).await;
-                inner_object_model
-                    .lock()
-                    .unwrap()
-                    .assert_children(&root, &[1], &[1], &[], 0);
+                next_render_cycle(&inner_object_model, &mut handle).await;
+                // The first pass renders the parent and every leaf,
+                // the second one the parent and the leaf with new props
+                assert_eq!(spawned.load(Ordering::SeqCst), 101 + 2);
 
                 handle.abort();
             })

@@ -57,7 +57,7 @@ A changed key always replaces the element, even outside of lists, which rebuilds
 Renderers implement `ObjectModel::move_node` to move an existing node.
 
 ## Render passes
-Every state update triggers a render pass. Each component is rendered and diffed in its own task on the spawner passed to the render loop,
+Every state update triggers a render pass. Each component that renders is rendered and diffed in its own task on the spawner passed to the render loop,
 so with a multi-threaded spawner sibling components render in parallel. While rendering, changes to the native nodes are only collected.
 Once all components are done, the pass is committed synchronously in one go: the cleanups run first,
 then the native nodes are updated and finally the effects run. A cleanup therefore still sees the nodes of its component,
