@@ -34,6 +34,9 @@ type Visit<'a, N, E> = Pin<Box<dyn Future<Output = Result<Changes<N>, E>> + Send
 
 static NEXT_COMPONENT_ID: AtomicU64 = AtomicU64::new(0);
 
+/// Levels of nested nodes that are visited in one task before continuing in a new one
+const TASK_DEPTH: usize = 64;
+
 /// What a render pass does with a subtree
 enum Work<N, E>
 where
@@ -277,34 +280,55 @@ impl<N, E> TreeNode<N, E>
 where
     N: From<String>,
 {
+    /// Converted with a stack instead of recursion, so deeply nested elements fit on the stack
     fn from(element: Element<N, E>) -> Self {
-        match element {
-            Element::Component(component) => {
-                TreeNode::Component(Box::new(TreeComponent::new(component)))
-            }
-            Element::Node(node, children) => TreeNode::Node(
-                Arc::new(node),
-                children
-                    .into_iter()
-                    .map(|child| TreeNode::from(child))
-                    .collect(),
-            ),
-            Element::Fragment(children) => TreeNode::Fragment(
-                children
-                    .into_iter()
-                    .map(|child| TreeNode::from(child))
-                    .collect(),
-            ),
-            Element::Provider(value, children) => {
-                TreeNode::Provider(value, children.into_iter().map(TreeNode::from).collect())
-            }
-            Element::Keyed(key, element) => {
-                TreeNode::Keyed(key, Box::new(TreeNode::from(*element)))
-            }
-            Element::Suspense(fallback, children) => TreeNode::Suspense(TreeSuspense {
-                state: SuspenseState::Unsettled(*fallback),
-                children: children.into_iter().map(TreeNode::from).collect(),
-            }),
+        let mut stack: Vec<PendingTreeNode<N, E>> = Vec::new();
+        let mut element = element;
+        loop {
+            let mut finished = match element {
+                Element::Component(component) => {
+                    Some(TreeNode::Component(Box::new(TreeComponent::new(component))))
+                }
+                Element::Node(node, children) => {
+                    stack.push(PendingTreeNode::new(PendingKind::Node(node), children));
+                    None
+                }
+                Element::Fragment(children) => {
+                    stack.push(PendingTreeNode::new(PendingKind::Fragment, children));
+                    None
+                }
+                Element::Provider(value, children) => {
+                    stack.push(PendingTreeNode::new(PendingKind::Provider(value), children));
+                    None
+                }
+                Element::Keyed(key, element) => {
+                    stack.push(PendingTreeNode::new(
+                        PendingKind::Keyed(key),
+                        vec![*element],
+                    ));
+                    None
+                }
+                Element::Suspense(fallback, children) => {
+                    stack.push(PendingTreeNode::new(
+                        PendingKind::Suspense(*fallback),
+                        children,
+                    ));
+                    None
+                }
+            };
+            // Finishes nodes until one of them has a child left to convert
+            element = loop {
+                let Some(pending) = stack.last_mut() else {
+                    return finished.expect("Converted an element without a result");
+                };
+                if let Some(node) = finished.take() {
+                    pending.children.push(node);
+                }
+                if let Some(child) = pending.elements.next() {
+                    break child;
+                }
+                finished = stack.pop().map(PendingTreeNode::finish);
+            };
         }
     }
 
@@ -377,58 +401,66 @@ where
     /// Whether a suspense boundary above this node has to keep waiting for it.
     /// Nested boundaries handle their own children, only their fallback counts.
     fn is_pending(&self) -> bool {
-        match self {
-            Self::Component(component) => {
-                component.render_result.is_some()
-                    || component
-                        .child
-                        .as_ref()
-                        .is_some_and(|child| child.is_pending())
+        let mut stack = vec![self];
+        while let Some(node) = stack.pop() {
+            match node {
+                Self::Component(component) => {
+                    if component.render_result.is_some() {
+                        return true;
+                    }
+                    stack.extend(component.child.as_deref());
+                }
+                Self::Node(_, children)
+                | Self::Fragment(children)
+                | Self::Provider(_, children) => stack.extend(children),
+                Self::Keyed(_, child) => stack.push(child),
+                Self::Suspense(suspense) => {
+                    if let SuspenseState::Fallback(fallback) = &suspense.state {
+                        stack.push(fallback);
+                    }
+                }
             }
-            Self::Node(_, children) | Self::Fragment(children) | Self::Provider(_, children) => {
-                children.iter().any(TreeNode::is_pending)
-            }
-            Self::Keyed(_, child) => child.is_pending(),
-            Self::Suspense(suspense) => match &suspense.state {
-                SuspenseState::Fallback(fallback) => fallback.is_pending(),
-                SuspenseState::Unsettled(_) | SuspenseState::Revealed => false,
-            },
         }
+        false
     }
 
     /// Passes a detached subtree to the object model, inserting it before the sibling.
     /// Effects that were held back while it was detached are queued.
     fn mount(&mut self, parent: &Arc<N>, sibling: &Option<Arc<N>>, changes: &mut Changes<N>) {
-        match self {
-            Self::Component(component) => {
-                if let Some(effects) = component.deferred_effects.take() {
-                    changes.queue_effects(component.id, effects);
-                }
-                if let Some(child) = component.child.as_mut() {
-                    child.mount(parent, sibling, changes);
-                }
-            }
-            Self::Node(node, children) => {
-                changes.create_node(node, parent, sibling);
-                for child in children {
-                    child.mount(node, &None, changes);
-                }
-            }
-            Self::Fragment(children) | Self::Provider(_, children) => {
-                for child in children {
-                    child.mount(parent, sibling, changes);
-                }
-            }
-            Self::Keyed(_, child) => child.mount(parent, sibling, changes),
-            Self::Suspense(suspense) => match &mut suspense.state {
-                SuspenseState::Unsettled(_) => {}
-                SuspenseState::Fallback(fallback) => fallback.mount(parent, sibling, changes),
-                SuspenseState::Revealed => {
-                    for child in &mut suspense.children {
-                        child.mount(parent, sibling, changes);
+        // Children are pushed in reverse so they are mounted in document order
+        let mut stack = vec![(self, Arc::clone(parent), sibling.clone())];
+        while let Some((node, parent, sibling)) = stack.pop() {
+            match node {
+                Self::Component(component) => {
+                    if let Some(effects) = component.deferred_effects.take() {
+                        changes.queue_effects(component.id, effects);
+                    }
+                    if let Some(child) = component.child.as_deref_mut() {
+                        stack.push((child, parent, sibling));
                     }
                 }
-            },
+                Self::Node(node, children) => {
+                    changes.create_node(node, &parent, &sibling);
+                    for child in children.iter_mut().rev() {
+                        stack.push((child, Arc::clone(node), None));
+                    }
+                }
+                Self::Fragment(children) | Self::Provider(_, children) => {
+                    for child in children.iter_mut().rev() {
+                        stack.push((child, Arc::clone(&parent), sibling.clone()));
+                    }
+                }
+                Self::Keyed(_, child) => stack.push((child, parent, sibling)),
+                Self::Suspense(suspense) => match &mut suspense.state {
+                    SuspenseState::Unsettled(_) => {}
+                    SuspenseState::Fallback(fallback) => stack.push((fallback, parent, sibling)),
+                    SuspenseState::Revealed => {
+                        for child in suspense.children.iter_mut().rev() {
+                            stack.push((child, Arc::clone(&parent), sibling.clone()));
+                        }
+                    }
+                },
+            }
         }
     }
 
@@ -437,6 +469,71 @@ where
             Self::Keyed(key, _) => Some(*key),
             _ => None,
         }
+    }
+}
+
+/// A node whose children are still being converted from elements
+struct PendingTreeNode<N, E>
+where
+    N: From<String>,
+{
+    kind: PendingKind<N, E>,
+    elements: std::vec::IntoIter<Element<N, E>>,
+    children: Vec<TreeNode<N, E>>,
+}
+
+enum PendingKind<N, E>
+where
+    N: From<String>,
+{
+    Node(N),
+    Fragment,
+    Provider(Arc<dyn Any + Send + Sync>),
+    Keyed(Key),
+    Suspense(Element<N, E>),
+}
+
+impl<N, E> PendingTreeNode<N, E>
+where
+    N: From<String>,
+{
+    fn new(kind: PendingKind<N, E>, elements: Vec<Element<N, E>>) -> Self {
+        Self {
+            kind,
+            children: Vec::with_capacity(elements.len()),
+            elements: elements.into_iter(),
+        }
+    }
+
+    fn finish(mut self) -> TreeNode<N, E> {
+        match self.kind {
+            PendingKind::Node(node) => TreeNode::Node(Arc::new(node), self.children),
+            PendingKind::Fragment => TreeNode::Fragment(self.children),
+            PendingKind::Provider(value) => TreeNode::Provider(value, self.children),
+            PendingKind::Keyed(key) => TreeNode::Keyed(
+                key,
+                Box::new(self.children.pop().expect("Keyed element without child")),
+            ),
+            PendingKind::Suspense(fallback) => TreeNode::Suspense(TreeSuspense {
+                state: SuspenseState::Unsettled(fallback),
+                children: self.children,
+            }),
+        }
+    }
+}
+
+/// The root of the tree, dropped with a stack instead of recursion
+struct TreeRoot<N, E>(TreeNode<N, E>)
+where
+    N: From<String>;
+
+impl<N, E> Drop for TreeRoot<N, E>
+where
+    N: From<String>,
+{
+    fn drop(&mut self) {
+        let root = mem::replace(&mut self.0, TreeNode::Fragment(Vec::new()));
+        remove(root, None, &mut Changes::default());
     }
 }
 
@@ -585,7 +682,7 @@ where
     S: Spawn + Send + Sync + 'static,
     P: ObjectModel<Node = N>,
 {
-    let mut tree_root = TreeNode::from(element);
+    let mut tree_root = TreeRoot(TreeNode::from(element));
 
     let (signal_sender, signal_receiver) = bounded::<()>(1);
 
@@ -607,7 +704,7 @@ where
         // The first pass creates the whole tree, later passes only reload what changed
         let work = if created { Work::Reload } else { Work::Create };
         created = true;
-        let changes = visit(&mut tree_root, work, ctx, &pass).await?;
+        let changes = visit(&mut tree_root.0, work, ctx, &pass).await?;
 
         object_model.start().await;
         cleanups.commit(changes, &mut object_model);
@@ -632,12 +729,45 @@ where
     S: Spawn + Send + Sync + 'static,
 {
     Box::pin(async move {
+        let mut ctx = ctx;
+        // Deeply nested nodes continue in a new task so they fit on the stack
+        if ctx.depth >= TASK_DEPTH && !matches!(node, TreeNode::Component(_)) {
+            return visit_in_task(node, work, ctx, pass).await;
+        }
+        ctx.depth += 1;
         match work {
             Work::Create => create(node, ctx, pass).await,
             Work::Reload => reload(node, ctx, pass).await,
             Work::Update(next) => update(node, next, ctx, pass).await,
         }
     })
+}
+
+/// Moves a subtree into a task on the spawner and puts it back once it is visited
+async fn visit_in_task<N, E, S>(
+    node: &mut TreeNode<N, E>,
+    work: Work<N, E>,
+    mut ctx: RenderContext<N>,
+    pass: &Pass<S>,
+) -> Result<Changes<N>, E>
+where
+    N: From<String> + Send + Sync + 'static,
+    E: Send + 'static,
+    S: Spawn + Send + Sync + 'static,
+{
+    let mut subtree = mem::replace(node, TreeNode::Fragment(Vec::new()));
+    let task_pass = pass.clone();
+    ctx.depth = 0;
+    let task = pass
+        .spawner
+        .spawn_with_handle(async move {
+            let result = visit(&mut subtree, work, ctx, &task_pass).await;
+            (subtree, result)
+        })
+        .expect("Failed to spawn async task");
+    let (subtree, result) = task.await;
+    *node = subtree;
+    result
 }
 
 /// Visits the subtrees concurrently and joins their changes in order
@@ -666,6 +796,8 @@ where
         unreachable!("Only components are visited in a task")
     };
     let task_pass = pass.clone();
+    let mut ctx = ctx;
+    ctx.depth = 0;
     let task = pass
         .spawner
         .spawn_with_handle(async move {
@@ -3018,6 +3150,81 @@ mod tests {
                     .assert_children(&root, &[1], &[1], &[], 0);
 
                 handle.abort();
+            })
+            .await;
+    }
+
+    const DEPTH: i32 = 5_000;
+
+    /// Nests DEPTH nodes, each node's id is its depth and the innermost node holds the value
+    fn nested_nodes(value: i32) -> Element<MockNode, ()> {
+        let mut element = Element::Node(MockNode(-value), Vec::new());
+        for id in (1..=DEPTH).rev() {
+            element = Element::Node(MockNode(id), vec![element]);
+        }
+        element
+    }
+
+    #[tokio::test]
+    async fn deeply_nested_nodes() {
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                // The innermost node changes, then the whole tree is removed
+                let mut harness =
+                    StepsHarness::start(vec![vec![1], vec![2], vec![]], |step| match step {
+                        [value] => nested_nodes(*value),
+                        _ => Element::fragment(Vec::new()),
+                    });
+                let root = harness.root.clone();
+
+                {
+                    let mut lock = harness.next_cycle().await;
+                    assert_eq!(lock.created.len(), DEPTH as usize + 1);
+                    assert_eq!(lock.children_of(&root), [1]);
+                    lock.created.clear();
+                }
+                {
+                    let mut lock = harness.next_cycle().await;
+                    assert_eq!(lock.updated.len(), DEPTH as usize + 1);
+                    lock.updated.clear();
+                    lock.assert_noop();
+                }
+                {
+                    let mut lock = harness.next_cycle().await;
+                    assert_eq!(lock.removed.len(), DEPTH as usize + 1);
+                    lock.removed.clear();
+                    assert_eq!(lock.children_of(&root), Vec::<i32>::new());
+                    lock.assert_noop();
+                }
+
+                harness.handle.abort();
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn deeply_nested_nodes_in_suspense() {
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                // The boundary is revealed right away and mounts the detached nodes
+                let mut harness = StepsHarness::start(vec![vec![1]], |_| {
+                    Suspense::<MockNode, ()>::builder()
+                        .fallback(Element::Node(MockNode(0), Vec::new()))
+                        .children(vec![nested_nodes(1)])
+                        .build()
+                        .into()
+                });
+                let root = harness.root.clone();
+
+                {
+                    let mut lock = harness.next_cycle().await;
+                    assert_eq!(lock.created.len(), DEPTH as usize + 1);
+                    lock.created.clear();
+                    assert_eq!(lock.children_of(&root), [1]);
+                    lock.assert_noop();
+                }
+
+                harness.handle.abort();
             })
             .await;
     }

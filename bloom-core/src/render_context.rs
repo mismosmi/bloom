@@ -9,6 +9,8 @@ pub(crate) struct RenderContext<N> {
     /// Detached nodes are kept in the tree but not passed to the object model,
     /// e.G. the children of a suspense boundary that is still showing its fallback.
     pub(crate) detached: bool,
+    /// How many nodes deep this node is nested since the last task on the spawner
+    pub(crate) depth: usize,
 }
 
 impl<N> Clone for RenderContext<N> {
@@ -18,6 +20,7 @@ impl<N> Clone for RenderContext<N> {
             sibling: self.sibling.clone(),
             context: self.context.clone(),
             detached: self.detached,
+            depth: self.depth,
         }
     }
 }
@@ -29,6 +32,7 @@ impl<N> RenderContext<N> {
             sibling,
             context,
             detached: false,
+            depth: 0,
         }
     }
 
@@ -38,6 +42,7 @@ impl<N> RenderContext<N> {
             sibling: None,
             context: self.context.clone(),
             detached: self.detached,
+            depth: self.depth,
         }
     }
 
@@ -47,6 +52,7 @@ impl<N> RenderContext<N> {
             sibling,
             context: self.context.clone(),
             detached: self.detached,
+            depth: self.depth,
         }
     }
 
@@ -56,6 +62,7 @@ impl<N> RenderContext<N> {
             sibling,
             context: self.context.clone(),
             detached: self.detached,
+            depth: self.depth,
         }
     }
 
@@ -67,12 +74,14 @@ impl<N> RenderContext<N> {
             sibling: self.sibling.clone(),
             context: Arc::new(new_context),
             detached: self.detached,
+            depth: self.depth,
         }
     }
 
     pub(crate) fn detach(&self) -> Self {
         Self {
             detached: true,
+            depth: self.depth,
             ..self.clone()
         }
     }
@@ -98,6 +107,7 @@ impl<N> RenderContext<N> {
             sibling,
             context: Arc::new(new_context),
             detached: self.detached,
+            depth: self.depth,
         }
     }
 }
