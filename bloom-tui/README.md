@@ -47,6 +47,7 @@ Run the full example with `cargo run -p bloom-tui --example counter`.
 * `<text>` / `<span>` / `<p>` are paragraphs, nested elements inside them only contribute their text style.
 * Layout attributes follow CSS flexbox: `grow`, `shrink`, `width`, `height`, `padding="1 2"`, `margin`, `gap`, `justify`, `align`, `position="absolute"`, `overflow="hidden"`, ...
 * Appearance: `border` (`plain`, `rounded`, `double`, `thick`), `border_color`, `title`, `color`, `bg`, `bold`, `dim`, `italic`, `underline`, `reversed`, `strikethrough`.
+* `key={...}` and `<Suspense fallback=...>` from bloom-core work as on the web, keyed elements are moved instead of re-created when their list is reordered.
 * Events: `on_key`, `on_paste`, `on_resize`, `on_focus` are delivered to every element defining them, `on_click`, `on_scroll`, `on_mouse` to the topmost element under the mouse.
 
 See the crate documentation for the full list.

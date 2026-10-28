@@ -16,6 +16,7 @@ unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
 futures-util = "0.3.34"
 async-channel = "2.5.0"
+futures-executor = "0.3.34"
 tokio = { version = "1.54.1", features = ["rt"], optional = true }
 
 [features]

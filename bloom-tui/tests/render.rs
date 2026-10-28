@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use bloom_core::{component, use_state, Component, Element};
+use bloom_core::{component, use_state, Component, Element, Suspense};
 use bloom_rsx::rsx;
 use bloom_tui::{
     crossterm::event::{
@@ -249,6 +249,107 @@ fn renders_async_components() {
     let terminal = render(Element::Component(Arc::new(Slow)), 6, 1);
     let mut buffer = frame(&terminal);
     while symbols(&buffer)[0] != "loaded" {
+        buffer = frame(&terminal);
+    }
+}
+
+#[component]
+fn Row(label: &'static str) -> Result<Element<TuiNode, ()>, ()> {
+    let clicks = use_state(|| 0);
+    let increment = clicks.clone();
+
+    Ok(rsx!(
+        <text on_click={move |_| increment.update(|clicks| *clicks + 1)}>
+            {format!("{label}:{}", *clicks)}
+        </text>
+    ))
+}
+
+#[component]
+fn ReorderableList() -> Result<Element<TuiNode, ()>, ()> {
+    let reversed = use_state(|| false);
+    let toggle = reversed.clone();
+    let mut labels = vec!["a", "b", "c"];
+    if *reversed {
+        labels.reverse();
+    }
+
+    Ok(rsx!(
+        <column>
+            <box on_click={move |_| toggle.update(|reversed| !*reversed)}>"reverse"</box>
+            {Element::fragment(
+                labels
+                    .into_iter()
+                    .map(|label| rsx!(<Row key={label} label=label />))
+                    .collect(),
+            )}
+        </column>
+    ))
+}
+
+#[test]
+fn keyed_rows_keep_their_state_when_reordered() {
+    let terminal = render(rsx!(<ReorderableList />), 7, 4);
+    assert_eq!(
+        symbols(&frame(&terminal)),
+        vec!["reverse", "a:0    ", "b:0    ", "c:0    "]
+    );
+
+    // Click "a" twice
+    terminal.send(click(0, 1));
+    frame(&terminal);
+    terminal.send(click(0, 1));
+    assert_eq!(symbols(&frame(&terminal))[1], "a:2    ");
+
+    // Reversing moves the rows, the state stays with "a"
+    terminal.send(click(0, 0));
+    assert_eq!(
+        symbols(&frame(&terminal)),
+        vec!["reverse", "c:0    ", "b:0    ", "a:2    "]
+    );
+
+    // Clicks still reach the moved rows
+    terminal.send(click(0, 1));
+    assert_eq!(symbols(&frame(&terminal))[1], "c:1    ");
+}
+
+/// Renders once its gate is opened
+struct Gated(async_channel::Receiver<()>);
+
+impl PartialEq for Gated {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+#[async_trait]
+impl Component for Gated {
+    type Node = TuiNode;
+    type Error = ();
+
+    async fn render(self: Arc<Self>) -> Result<Element<TuiNode, ()>, ()> {
+        let _ = self.0.recv().await;
+        Ok(rsx!(<text>"ready"</text>))
+    }
+}
+
+#[test]
+fn suspense_shows_fallback_until_children_are_ready() {
+    let (open, gate) = async_channel::bounded(1);
+    let terminal = render(
+        rsx!(
+            <Suspense fallback="loading">
+                {Element::Component(Arc::new(Gated(gate)))}
+            </Suspense>
+        ),
+        7,
+        1,
+    );
+    assert_eq!(symbols(&frame(&terminal)), vec!["loading"]);
+
+    open.try_send(()).unwrap();
+    let mut buffer = frame(&terminal);
+    while symbols(&buffer)[0] != "ready  " {
         buffer = frame(&terminal);
     }
 }

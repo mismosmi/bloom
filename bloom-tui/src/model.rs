@@ -526,6 +526,23 @@ where
         self.insert_child(key(parent), key(node), sibling.as_ref().map(key));
     }
 
+    fn move_node(
+        &mut self,
+        node: &Arc<TuiNode>,
+        parent: &Arc<TuiNode>,
+        sibling: &Option<Arc<TuiNode>>,
+    ) {
+        let (node_key, parent_key) = (key(node), key(parent));
+        let Some(state) = self.nodes.get_mut(&node_key) else {
+            return;
+        };
+        let old_parent = state.parent.replace(parent_key);
+        if let Some(old_parent) = old_parent.and_then(|old| self.nodes.get_mut(&old)) {
+            old_parent.children.retain(|child| *child != node_key);
+        }
+        self.insert_child(parent_key, node_key, sibling.as_ref().map(key));
+    }
+
     fn remove(&mut self, node: &Arc<TuiNode>, parent: &Arc<TuiNode>) {
         if let Some(parent_state) = self.nodes.get_mut(&key(parent)) {
             parent_state.children.retain(|child| *child != key(node));

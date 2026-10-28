@@ -38,6 +38,8 @@
 //! * `<text>` / `<span>` / `<p>` are paragraphs: all text inside them, including nested elements,
 //!   is flowed and wrapped as one piece of text. Nested elements only contribute their text style.
 //! * Bare text inside a box is wrapped like a paragraph without any style of its own.
+//! * `key={...}` and `<Suspense fallback=...>` from bloom-core work as on the web:
+//!   keyed elements are moved instead of re-created when their list is reordered.
 //!
 //! # Attributes
 //! Layout (numbers are terminal cells, percentages are relative to the parent):
@@ -96,7 +98,7 @@ use crossterm::{
 };
 use futures_util::{
     future::{select, Either},
-    task::{Spawn, SpawnExt},
+    task::Spawn,
     StreamExt,
 };
 use model::{SharedState, TuiModel};
@@ -126,6 +128,8 @@ where
 pub mod prelude {
     /// The `tag`-function rsx will use to generate TuiElements
     pub use super::tag;
+    /// The `keyed`-function rsx will use for elements with a `key`
+    pub use bloom_core::keyed;
 }
 
 /// Errors that end the TUI
@@ -211,7 +215,7 @@ impl Default for RenderOptions {
 pub async fn render<E, S>(element: Element<TuiNode, E>, spawner: S) -> Result<(), Error<E>>
 where
     E: Send + 'static,
-    S: Spawn,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     render_with_options(element, spawner, RenderOptions::default()).await
 }
@@ -224,7 +228,7 @@ pub async fn render_with_options<E, S>(
 ) -> Result<(), Error<E>>
 where
     E: Send + 'static,
-    S: Spawn,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     let _guard = TerminalGuard::enter(&options)?;
     let terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -395,12 +399,12 @@ pub struct TestTerminal {
 }
 
 impl TestTerminal {
-    /// Start rendering the element on the spawner.
+    /// Start rendering the element on a background thread, async components run on the spawner.
     /// If a component returns an error, rendering stops and [TestTerminal::next_frame] returns `None`.
     pub fn new<E, S>(element: Element<TuiNode, E>, width: u16, height: u16, spawner: S) -> Self
     where
         E: Send + 'static,
-        S: Spawn + Clone + Send + 'static,
+        S: Spawn + Clone + Send + Sync + 'static,
     {
         let (frame_sender, frames) = async_channel::unbounded();
         let shared = SharedState::default();
@@ -417,9 +421,12 @@ impl TestTerminal {
             let _ = frame_sender.try_send(buffer.clone());
         });
 
-        spawner
-            .spawn(render_test(root, element, spawner.clone(), model))
-            .expect("Failed to spawn render loop");
+        // The render loop is not Send (effect cleanups may hold anything),
+        // so it is driven by its own thread instead of the spawner
+        std::thread::Builder::new()
+            .name("bloom-tui-test".to_string())
+            .spawn(move || futures_executor::block_on(render_test(root, element, spawner, model)))
+            .expect("Failed to spawn render thread");
 
         Self { frames, shared }
     }
@@ -443,7 +450,7 @@ async fn render_test<E, S>(
     model: TuiModel<TestBackend>,
 ) where
     E: Send + 'static,
-    S: Spawn,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     // Errors end the render loop which closes the frame channel
     let _ = render_loop(root, element, spawner, model).await;
