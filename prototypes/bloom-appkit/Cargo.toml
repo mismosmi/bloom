@@ -1,0 +1,23 @@
+[package]
+name = "bloom-appkit"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+bloom-core = { path = "../../bloom-core" }
+futures-executor = { version = "0.3", features = ["thread-pool"] }
+weak-table = "0.4.0"
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+dispatch2 = "0.3"
+
+[dev-dependencies]
+bloom-core = { path = "../../bloom-core" }
+bloom-rsx = { path = "../../bloom-rsx" }
+async-channel = "2.5.0"
+async-trait = "0.1"
+futures-executor = { version = "0.3", features = ["thread-pool"] }
