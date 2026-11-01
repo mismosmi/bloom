@@ -1,7 +1,4 @@
 [workspace]
-
-version = "0.2.0"
-
 members = [
     "async-context",
     "bloom-core",
@@ -13,5 +10,7 @@ members = [
     "bloom-rsx",
     "bloom-macro",
 ]
-
 resolver = "2"
+
+[workspace.package]
+version = "0.2.0"
