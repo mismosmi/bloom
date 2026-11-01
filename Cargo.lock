@@ -140,10 +140,7 @@ dependencies = [
  "async-channel",
  "async-context",
  "async-trait",
- "bloom-html",
  "bloom-macro",
- "bloom-rsx",
- "bloom-ssr",
  "bon",
  "futures-executor",
  "futures-util",
@@ -155,8 +152,11 @@ dependencies = [
 name = "bloom-html"
 version = "0.2.0"
 dependencies = [
+ "async-trait",
  "bloom-core",
  "bloom-rsx",
+ "bloom-ssr",
+ "futures-executor",
  "web-sys",
 ]
 
@@ -203,6 +203,8 @@ version = "0.2.0"
 dependencies = [
  "bloom-core",
  "bloom-html",
+ "bloom-rsx",
+ "futures-executor",
  "futures-util",
  "tokio",
 ]

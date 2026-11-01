@@ -1,22 +1,13 @@
 use crate::Element;
 
 /// Groups elements without adding a node.
-/// In rsx it is used like a component, and like any other element it can be keyed,
-/// e.g. to key several nodes at once:
 /// ```
-/// use bloom_core::{Element, Fragment};
-/// use bloom_html::{prelude::*, HtmlNode};
-/// use bloom_rsx::rsx;
-///
-/// let items = vec![(1, "one"), (2, "two")];
-/// let list: Element<HtmlNode, ()> = rsx!(
-///     <dl>{items.iter().map(|(id, label)| rsx!(
-///         <Fragment key={id}><dt>{id.to_string()}</dt><dd>{*label}</dd></Fragment>
-///     )).collect::<Vec<_>>()}</dl>
-/// );
-///
-/// // Without rsx
-/// let group: Element<HtmlNode, ()> = Fragment::builder().children(vec!["one".into()]).build().into();
+/// use bloom_core::{keyed, Element, Fragment};
+/// let group: Element<String, ()> = Fragment::builder()
+///     .children(vec!["one".into(), "two".into()])
+///     .build()
+///     .into();
+/// let keyed_group: Element<String, ()> = keyed(1, group);
 /// ```
 pub struct Fragment<N, E>
 where

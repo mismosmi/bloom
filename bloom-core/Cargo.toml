@@ -19,8 +19,5 @@ bloom-macro.workspace = true
 bon = "3.10.3"
 
 [dev-dependencies]
-bloom-html.workspace = true
-bloom-rsx.workspace = true
-bloom-ssr.workspace = true
 futures-executor = { version = "0.3.34", features = ["thread-pool"] }
 tokio = { version = "1.54.1", features = ["macros", "rt"] }

@@ -22,9 +22,6 @@ pub trait Component: PartialEq<Self> + Send + Sync {
     ///
     /// use async_trait::async_trait;
     /// use bloom_core::{use_state, Component, Element};
-    /// use bloom_html::{prelude::*, HtmlNode};
-    /// use bloom_rsx::rsx;
-    ///
     /// #[derive(PartialEq, Debug)]
     /// struct Counter {
     ///     initial_count: i32,
@@ -32,25 +29,18 @@ pub trait Component: PartialEq<Self> + Send + Sync {
     ///
     /// #[async_trait]
     /// impl Component for Counter {
-    ///     type Node = HtmlNode;
+    ///     type Node = String;
     ///     type Error = ();
     ///
     ///     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
     ///         let count = use_state(|| self.initial_count);
     ///
-    ///         Ok(rsx!(
-    ///             <div>{count.to_string()}</div>
-    ///             <button on_click={move |_| count.update(|count| *count + 1)}>"Increment"</button>
-    ///         ))
+    ///         Ok(count.into())
     ///     }
     /// }
     ///
-    /// # let pool = futures_executor::ThreadPool::new().unwrap();
-    /// # let html = futures_executor::block_on(bloom_ssr::render_to_string(
-    /// #     Counter { initial_count: 5 }.into(),
-    /// #     pool,
-    /// # ));
-    /// # assert_eq!(html, Ok("<div>5</div><button>Increment</button>".to_string()));
+    /// let output = futures_executor::block_on(Arc::new(Counter { initial_count: 5 }).render());
+    /// assert!(matches!(output, Ok(Element::Node(value, children)) if value == "5" && children.is_empty()));
     /// ```
     ///
     /// Components should usually implement a builder pattern for construction using the bloom-rsx macro.

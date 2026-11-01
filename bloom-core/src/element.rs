@@ -5,13 +5,12 @@ use crate::{
     Key,
 };
 
-/// The element type is returned from component render-functions.
-/// It can be constructed from a Node-type, e.G. HtmlNode, or a Component.
+/// The element type is returned from component render functions.
+/// It can be constructed from text or a component, or directly with a native node.
 /// ```
 /// use bloom_core::Element;
-/// use bloom_html::HtmlNode;
-///
-/// let element: Element<HtmlNode, ()> = HtmlNode::element("div").attr("id", "test123").build().into();
+/// let text: Element<String, ()> = "Hello".into();
+/// let node: Element<String, ()> = Element::Node("container".to_string(), vec![text]);
 /// ```
 pub enum Element<Node, Error>
 where
@@ -37,38 +36,10 @@ where
 
 /// A keyed element keeps its state and native nodes when it is moved within a list,
 /// and is rebuilt from scratch when its key changes.
-/// rsx calls this function for every tag or component with a `key`, so it has to be in scope.
-/// `bloom_html::prelude` re-exports it next to `tag`:
 /// ```
-/// use bloom_core::{component, Element, Fragment};
-/// use bloom_html::{prelude::*, HtmlNode};
-/// use bloom_rsx::rsx;
-///
-/// #[component]
-/// fn Row(label: String) -> Result<Element<HtmlNode, ()>, ()> {
-///     Ok(rsx!(<li>{label.clone()}</li>))
-/// }
-///
-/// let items = vec![(1, "one"), (2, "two")];
-/// let lists: Element<HtmlNode, ()> = rsx!(
-///     <ul>{items.iter().map(|(id, label)| rsx!(<li key={id}>{*label}</li>)).collect::<Vec<_>>()}</ul>
-///     <ul>{items.iter().map(|(id, label)| rsx!(<Row key={id} label=*label />)).collect::<Vec<_>>()}</ul>
-///     <dl>{items.iter().map(|(id, label)| rsx!(
-///         <Fragment key={id}><dt>{id.to_string()}</dt><dd>{*label}</dd></Fragment>
-///     )).collect::<Vec<_>>()}</dl>
-/// );
-/// # let html = futures_executor::block_on(bloom_ssr::render_to_string(
-/// #     lists,
-/// #     futures_executor::ThreadPool::new().unwrap(),
-/// # ));
-/// # assert_eq!(html, Ok(concat!(
-/// #     "<ul><li>one</li><li>two</li></ul>",
-/// #     "<ul><li>one</li><li>two</li></ul>",
-/// #     "<dl><dt>1</dt><dd>one</dd><dt>2</dt><dd>two</dd></dl>",
-/// # ).to_string()));
-///
-/// // Without rsx
-/// let item: Element<HtmlNode, ()> = keyed(1, tag("li").build().children(vec!["one".into()]));
+/// use bloom_core::{keyed, Element};
+/// let item: Element<String, ()> = keyed(1, "one");
+/// let list: Element<String, ()> = vec![item, keyed(2, "two")].into();
 /// ```
 pub fn keyed<N, E, K, T>(key: K, element: T) -> Element<N, E>
 where

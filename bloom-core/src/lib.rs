@@ -20,47 +20,30 @@ mod suspense;
 /// The generated builder (from [bon](https://docs.rs/bon)) accepts anything that converts into the prop type.
 /// ```
 /// use bloom_core::{component, Element};
-/// use bloom_html::{prelude::*, HtmlNode};
-/// use bloom_rsx::rsx;
 ///
 /// #[component]
-/// pub fn Greeting(name: String, times: Option<usize>) -> Result<Element<HtmlNode, ()>, ()> {
-///     Ok(rsx!(<div>{name.repeat(times.unwrap_or(1))}</div>))
+/// fn Greeting(name: String, times: Option<usize>) -> Result<Element<String, ()>, ()> {
+///     Ok(name.repeat(times.unwrap_or(1)).into())
 /// }
 ///
 /// #[component]
 /// fn Labelled<T: ToString + PartialEq + Send + Sync + 'static>(
 ///     label: T,
-/// ) -> Result<Element<HtmlNode, ()>, ()> {
-///     Ok(rsx!(<span>{label.to_string()}</span>))
+/// ) -> Result<Element<String, ()>, ()> {
+///     Ok(label.to_string().into())
 /// }
 ///
-/// #[component]
-/// fn App() -> Result<Element<HtmlNode, ()>, ()> {
-///     Ok(rsx!(
-///         <Greeting times=2usize name="Hi" />
-///         <Greeting name="Hello" />
-///         <Labelled<i32> label=42 />
-///     ))
-/// }
-///
-/// # let html = futures_executor::block_on(bloom_ssr::render_to_string(
-/// #     App::builder().build().into(),
-/// #     futures_executor::ThreadPool::new().unwrap(),
-/// # ));
-/// # assert_eq!(html, Ok("<div>HiHi</div><div>Hello</div><span>42</span>".to_string()));
+/// let greeting: Element<String, ()> = Greeting::builder().name("Hi").times(2usize).build().into();
+/// let label: Element<String, ()> = Labelled::<i32>::builder().label(42).build().into();
 /// ```
 ///
 /// Leaving out a required prop is a compile-time error:
-/// ```compile_fail
-/// # use bloom_core::{component, Element};
-/// # use bloom_html::{prelude::*, HtmlNode};
-/// # use bloom_rsx::rsx;
+/// ```compile_fail,E0599
+/// use bloom_core::{component, Element};
 /// #[component]
-/// fn Greeting(name: String) -> Result<Element<HtmlNode, ()>, ()> {
-///     Ok(rsx!(<div>{name.clone()}</div>))
+/// fn Greeting(name: String) -> Result<Element<String, ()>, ()> {
+///     Ok(name.into())
 /// }
-///
 /// let greeting = Greeting::builder().build();
 /// ```
 pub use bloom_macro::component;

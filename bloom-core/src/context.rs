@@ -11,39 +11,23 @@ use crate::{hook::Hook, Element};
 /// Provides a value to all components below it, which can read it with [use_context].
 /// ```
 /// use bloom_core::{component, use_context, Element, Provider};
-/// use bloom_html::{prelude::*, HtmlNode};
-/// use bloom_rsx::rsx;
-///
 /// #[derive(Default)]
 /// struct Theme(&'static str);
-///
 /// #[component]
-/// fn Themed() -> Result<Element<HtmlNode, ()>, ()> {
-///     let theme = use_context::<Theme>();
-///     Ok(rsx!(<div>{theme.0}</div>))
+/// fn Themed() -> Result<Element<String, ()>, ()> {
+///     Ok(use_context::<Theme>().0.into())
 /// }
-///
-/// let app: Element<HtmlNode, ()> = rsx!(<Provider value={Theme("dark")}><Themed /></Provider>);
-///
-/// // Without rsx
-/// let app: Element<HtmlNode, ()> = Provider::builder()
+/// let app: Element<String, ()> = Provider::builder()
 ///     .value(Theme("dark"))
-///     .children(vec![rsx!(<Themed />)])
+///     .children(vec![Themed::builder().build().into()])
 ///     .build()
 ///     .into();
-/// # let html = futures_executor::block_on(bloom_ssr::render_to_string(
-/// #     app,
-/// #     futures_executor::ThreadPool::new().unwrap(),
-/// # ));
-/// # assert_eq!(html, Ok("<div>dark</div>".to_string()));
 /// ```
 ///
 /// A provider needs a value:
-/// ```compile_fail
+/// ```compile_fail,E0599
 /// use bloom_core::{Element, Provider};
-/// use bloom_html::HtmlNode;
-///
-/// let provider: Element<HtmlNode, ()> = Provider::builder().build().into();
+/// let provider: Element<String, ()> = Provider::builder().build().into();
 /// ```
 pub struct Provider<N, E>
 where
