@@ -12,10 +12,10 @@ repository = "https://github.com/mismosmi/bloom/tree/main/bloom-core"
 [dependencies]
 futures-util = { version = "0.3.34", features = ["channel"] }
 async-trait = "0.1.92"
-async-context = { version = "0.1.0", path = "../async-context" }
+async-context.workspace = true
 async-channel = "2.5.0"
 pin-project = "1.1.13"
-bloom-macro = { version = "0.1.0", path = "../bloom-macro" }
+bloom-macro.workspace = true
 bon = "3.10.3"
 
 [dev-dependencies]

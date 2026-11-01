@@ -16,10 +16,10 @@ resolver = "2"
 version = "0.2.0"
 
 [workspace.dependencies]
-async-context = { path = "async-context" }
-bloom-client = { path = "bloom-client" }
-bloom-core = { path = "bloom-core" }
-bloom-html = { path = "bloom-html" }
-bloom-macro = { path = "bloom-macro" }
-bloom-rsx = { path = "bloom-rsx" }
-bloom-ssr = { path = "bloom-ssr" }
+async-context = { path = "async-context", version = "0.1.1" }
+bloom-client = { path = "bloom-client", version = "0.2.0" }
+bloom-core = { path = "bloom-core", version = "0.2.0" }
+bloom-html = { path = "bloom-html", version = "0.2.0" }
+bloom-macro = { path = "bloom-macro", version = "0.2.0" }
+bloom-rsx = { path = "bloom-rsx", version = "0.2.0" }
+bloom-ssr = { path = "bloom-ssr", version = "0.2.0" }
