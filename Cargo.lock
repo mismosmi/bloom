@@ -152,6 +152,7 @@ dependencies = [
 name = "bloom-html"
 version = "0.2.0"
 dependencies = [
+ "async-trait",
  "bloom-core",
  "bloom-rsx",
  "web-sys",
@@ -200,6 +201,8 @@ version = "0.2.0"
 dependencies = [
  "bloom-core",
  "bloom-html",
+ "bloom-rsx",
+ "futures-executor",
  "futures-util",
  "tokio",
 ]

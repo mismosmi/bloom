@@ -35,28 +35,17 @@ impl StateUpdate {
 /// assert_eq!(0, *my_state);
 /// ```
 ///
-/// Its update-method can be used to change the state.
-/// This will trigger a re-render of the component.
+/// Its update method changes the state and triggers a re-render of the component.
+/// Call it from a callback, such as an event handler:
 /// ```
-/// # use std::sync::Arc;
-/// # use async_trait::async_trait;
-/// # use bloom_core::{use_state, Component, Element};
-/// # use bloom_html::{prelude::*, HtmlNode};
-/// # use bloom_rsx::rsx;
-/// # #[derive(PartialEq)]
-/// # struct Counter;
-/// # #[async_trait]
-/// # impl Component for Counter {
-/// #     type Node = HtmlNode;
-/// #     type Error = ();
-/// #     async fn render(self: Arc<Self>) -> Result<Element<HtmlNode, ()>, ()> {
-/// let my_state = use_state(|| 0);
-///
-/// Ok(rsx!(
-///     <button on_click={move |_| my_state.update(|value| *value + 1)}>"Increment"</button>
-/// ))
-/// #     }
-/// # }
+/// use bloom_core::{component, use_state, Element};
+/// #[component]
+/// fn Counter() -> Result<Element<String, ()>, ()> {
+///     let count = use_state(|| 0);
+///     let increment = move || count.update(|value| *value + 1);
+///     // Pass `increment` to the renderer's event handler.
+///     Ok("Increment".into())
+/// }
 /// ```
 #[derive(Clone)]
 pub struct State<T> {

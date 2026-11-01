@@ -16,3 +16,5 @@ futures-util = { version = "0.3.34", features = ["channel"] }
 
 [dev-dependencies]
 tokio = { version = "1.54.1", features = ["macros", "rt"] }
+bloom-rsx.workspace = true
+futures-executor = { version = "0.3.34", features = ["thread-pool"] }

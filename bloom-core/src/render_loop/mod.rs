@@ -140,45 +140,43 @@ pub trait ObjectModel {
 /// # use async_trait::async_trait;
 /// # use bloom_core::{Component, Element};
 /// use bloom_core::{render_loop, ObjectModel};
-/// use bloom_html::{prelude::*, HtmlNode};
-/// use bloom_rsx::{rsx, NoopBuilder};
 ///
 /// struct PrintObjectModel;
 ///
 /// impl ObjectModel for PrintObjectModel {
-///     type Node = HtmlNode;
+///     type Node = String;
 ///
-///     fn create(&mut self, node: &Arc<HtmlNode>, _parent: &Arc<HtmlNode>, _sibling: &Option<Arc<HtmlNode>>) {
+///     fn create(&mut self, node: &Arc<String>, _parent: &Arc<String>, _sibling: &Option<Arc<String>>) {
 ///         println!("create {:?}", node);
 ///     }
 ///
-///     fn move_node(&mut self, node: &Arc<HtmlNode>, _parent: &Arc<HtmlNode>, _sibling: &Option<Arc<HtmlNode>>) {
+///     fn move_node(&mut self, node: &Arc<String>, _parent: &Arc<String>, _sibling: &Option<Arc<String>>) {
 ///         println!("Moved {:?}", node);
 ///     }
 ///
-///     fn remove(&mut self, node: &Arc<HtmlNode>, _parent: &Arc<HtmlNode>) {
+///     fn remove(&mut self, node: &Arc<String>, _parent: &Arc<String>) {
 ///         println!("remove {:?}", node);
 ///     }
 ///
-///     fn update(&mut self, node: &Arc<HtmlNode>, next: &Arc<HtmlNode>) {
+///     fn update(&mut self, node: &Arc<String>, next: &Arc<String>) {
 ///         println!("update {:?} to {:?}", node, next);
 ///     }
 /// }
 ///
-/// # #[derive(PartialEq, NoopBuilder)]
+/// # #[derive(PartialEq)]
 /// # struct MyComponent;
 /// # #[async_trait]
 /// # impl Component for MyComponent {
-/// #     type Node = HtmlNode;
+/// #     type Node = String;
 /// #     type Error = ();
-/// #     async fn render(self: Arc<Self>) -> Result<Element<HtmlNode, ()>, ()> {
-/// #         Ok(rsx!(<div />))
+/// #     async fn render(self: Arc<Self>) -> Result<Element<String, ()>, ()> {
+/// #         Ok("Hello".into())
 /// #     }
 /// # }
-/// let root = Arc::new(HtmlNode::element("div").build().into());
+/// let root = Arc::new(String::from("root"));
 /// let spawner = futures_executor::ThreadPool::new().unwrap();
 ///
-/// futures_executor::block_on(render_loop(root, rsx!(<MyComponent />), spawner, PrintObjectModel))
+/// futures_executor::block_on(render_loop(root, MyComponent.into(), spawner, PrintObjectModel))
 ///     .unwrap();
 /// ```
 pub async fn render_loop<N, E, S, P>(

@@ -16,28 +16,12 @@ use crate::Element;
 ///
 /// Server-side rendering ignores suspense boundaries and always renders the children.
 /// ```
-/// use bloom_core::{component, Element, Suspense};
-/// use bloom_html::{prelude::*, HtmlNode};
-/// use bloom_rsx::rsx;
-///
-/// #[component]
-/// fn Profile() -> Result<Element<HtmlNode, ()>, ()> {
-///     Ok(rsx!(<div>"Profile"</div>))
-/// }
-///
-/// #[component]
-/// fn App() -> Result<Element<HtmlNode, ()>, ()> {
-///     Ok(rsx!(
-///         <Suspense fallback="Loading...">
-///             <Profile />
-///         </Suspense>
-///     ))
-/// }
-/// # let html = futures_executor::block_on(bloom_ssr::render_to_string(
-/// #     App::builder().build().into(),
-/// #     futures_executor::ThreadPool::new().unwrap(),
-/// # ));
-/// # assert_eq!(html, Ok("<div>Profile</div>".to_string()));
+/// use bloom_core::{Element, Suspense};
+/// let app: Element<String, ()> = Suspense::builder()
+///     .fallback("Loading...")
+///     .children(vec!["Profile".into()])
+///     .build()
+///     .into();
 /// ```
 #[derive(bon::Builder)]
 pub struct Suspense<N, E>
