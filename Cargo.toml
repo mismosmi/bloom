@@ -14,3 +14,12 @@ resolver = "2"
 
 [workspace.package]
 version = "0.2.0"
+
+[workspace.dependencies]
+async-context = { path = "async-context" }
+bloom-client = { path = "bloom-client" }
+bloom-core = { path = "bloom-core" }
+bloom-html = { path = "bloom-html" }
+bloom-macro = { path = "bloom-macro" }
+bloom-rsx = { path = "bloom-rsx" }
+bloom-ssr = { path = "bloom-ssr" }
