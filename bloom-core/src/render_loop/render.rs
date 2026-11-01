@@ -85,6 +85,7 @@ where
             self.updater.clone(),
             self.state.clone(),
             self.refs.clone(),
+            self.memos.clone(),
             ctx.context.clone(),
         );
         let component = Arc::clone(&self.component);
