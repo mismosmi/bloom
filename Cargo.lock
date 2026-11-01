@@ -155,6 +155,8 @@ dependencies = [
  "async-trait",
  "bloom-core",
  "bloom-rsx",
+ "bloom-ssr",
+ "futures-executor",
  "web-sys",
 ]
 

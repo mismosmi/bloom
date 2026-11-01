@@ -16,3 +16,5 @@ web-sys = { version = "0.3", features = ["Event", "HtmlElement"] }
 [dev-dependencies]
 bloom-rsx.workspace = true
 async-trait = "0.1.92"
+futures-executor = { version = "0.3.34", features = ["thread-pool"] }
+bloom-ssr.workspace = true
