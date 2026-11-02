@@ -1,0 +1,66 @@
+name: Publish releases
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+permissions:
+  contents: read
+
+# A rerun resumes a partially published release; never cancel an active publish.
+concurrency:
+  group: publish-releases
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.ref == 'release' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Publish exactly the reviewed release, including on a later rerun.
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: knope-dev/action@v2.1.2
+        with:
+          version: 0.23.2
+      - name: Validate release configuration
+        # Knope's CreatePullRequest validation requires a branch.
+        run: |
+          git switch --create knope-validation
+          knope --validate
+          git switch --detach
+      - name: Test library crates and doctests
+        run: >-
+          cargo test --locked
+          -p async-context -p bloom-macro -p bloom-rsx -p bloom-core
+          -p bloom-html -p bloom-ssr -p bloom-client
+      - name: Authenticate with crates.io
+        id: crates-io-auth
+        uses: rust-lang/crates-io-auth-action@v1
+      # Detect publishable workspace members, sort dependencies, skip existing
+      # versions on retries, and wait for registry availability between uploads.
+      - name: Publish crates
+        uses: katyo/publish-crates@v2
+        with:
+          registry-token: ${{ steps.crates-io-auth.outputs.token }}
+          args: --locked
+          # The merge commit is intentionally checked out as a detached HEAD.
+          check-repo: false
+      - name: Create GitHub releases
+        run: knope release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

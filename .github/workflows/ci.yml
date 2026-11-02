@@ -9,6 +9,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  release-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: knope-dev/action@v2.1.2
+        with:
+          version: 0.23.2
+      - name: Validate release configuration
+        # Knope's CreatePullRequest validation requires a branch.
+        run: |
+          git switch --create knope-validation
+          knope --validate
+          git switch --detach
+
   check:
     runs-on: ubuntu-latest
     steps:
