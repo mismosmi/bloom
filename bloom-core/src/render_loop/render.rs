@@ -85,6 +85,7 @@ where
             self.updater.clone(),
             self.state.clone(),
             self.refs.clone(),
+            self.memos.clone(),
             ctx.context.clone(),
         );
         let component = Arc::clone(&self.component);
@@ -130,6 +131,7 @@ where
         }
         self.state = hook.state;
         self.refs = hook.refs;
+        self.memos = hook.memos;
         let element = element?;
         match self.child.as_mut() {
             Some(child) => changes.append(visit(child, Work::Update(element), ctx, pass).await?),

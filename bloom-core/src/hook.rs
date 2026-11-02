@@ -16,6 +16,8 @@ pub(crate) struct Hook {
     pub(crate) refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
     pub(crate) ref_index: u16,
     pub(crate) context: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+    pub(crate) memos: Vec<(u64, Arc<dyn Any + Send + Sync>)>,
+    pub(crate) memo_index: usize,
 }
 
 impl Hook {
@@ -24,6 +26,7 @@ impl Hook {
         updater: Sender<StateUpdate>,
         state: HashMap<u16, Arc<dyn Any + Send + Sync>>,
         refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
+        memos: Vec<(u64, Arc<dyn Any + Send + Sync>)>,
         context: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
     ) -> Self {
         Self {
@@ -35,6 +38,8 @@ impl Hook {
             refs,
             ref_index: 0,
             context,
+            memos,
+            memo_index: 0,
         }
     }
 
@@ -51,6 +56,8 @@ impl Hook {
             refs: HashMap::new(),
             ref_index: 0,
             context,
+            memos: Vec::new(),
+            memo_index: 0,
         }
     }
 }
