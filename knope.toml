@@ -1,0 +1,65 @@
+# The Bloom crates share workspace.package.version; async-context is independent.
+[packages.bloom]
+versioned_files = [
+    "Cargo.toml",
+    { path = "Cargo.toml", dependency = "bloom-client" },
+    { path = "Cargo.toml", dependency = "bloom-core" },
+    { path = "Cargo.toml", dependency = "bloom-html" },
+    { path = "Cargo.toml", dependency = "bloom-macro" },
+    { path = "Cargo.toml", dependency = "bloom-rsx" },
+    { path = "Cargo.toml", dependency = "bloom-ssr" },
+    { path = "Cargo.lock", dependency = "bloom-client" },
+    { path = "Cargo.lock", dependency = "bloom-core" },
+    { path = "Cargo.lock", dependency = "bloom-html" },
+    { path = "Cargo.lock", dependency = "bloom-macro" },
+    { path = "Cargo.lock", dependency = "bloom-rsx" },
+    { path = "Cargo.lock", dependency = "bloom-ssr" },
+]
+changelog = "CHANGELOG.md"
+
+[packages.async-context]
+versioned_files = [
+    "async-context/Cargo.toml",
+    { path = "Cargo.toml", dependency = "async-context" },
+    { path = "Cargo.lock", dependency = "async-context" },
+]
+changelog = "async-context/CHANGELOG.md"
+
+# Explicit change files avoid deriving an initial release from the entire history.
+[changes]
+ignore_conventional_commits = true
+
+[github]
+owner = "mismosmi"
+repo = "bloom"
+
+[[workflows]]
+name = "document-change"
+[[workflows.steps]]
+type = "CreateChangeFile"
+
+[[workflows]]
+name = "prepare-release"
+[[workflows.steps]]
+type = "PrepareRelease"
+
+[[workflows]]
+name = "create-release-pr"
+[[workflows.steps]]
+type = "CreatePullRequest"
+base = "main"
+[workflows.steps.title]
+template = "chore: prepare releases"
+[workflows.steps.body]
+template = """
+Prepare the next crates.io releases with Knope.
+
+Review the versions, dependency requirements, lockfile, and changelogs in this PR.
+Merging publishes the library crates in dependency order, then creates GitHub releases.
+The example applications are never published.
+"""
+
+[[workflows]]
+name = "release"
+[[workflows.steps]]
+type = "Release"

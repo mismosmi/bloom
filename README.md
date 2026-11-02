@@ -17,3 +17,70 @@ It is split into the following packages:
 * [async-context](./async-context/README.md) allows providing context to async rust functions building the foundation of bloom's runtime hooks and allowing bloom-components (in contrast to react components) to be truly async.
 * [bloom-client-example](./bloom-client-example/README.md) is an example implementation of an SPA (runnning completely in the browser on web assembly) with bloom.
 * [bloom-server-example](./bloom-server-example/README.md) is an example implementation of using bloom to render html on the server.
+
+## Releases
+
+[Knope](https://knope.tech/) manages two release groups: the six `bloom-*`
+libraries share the workspace version, and `async-context` has its own version.
+The example applications have `publish = false`.
+
+For a change that should ship, run `knope document-change` (Knope 0.23.2), select
+`bloom` and/or `async-context`, and commit the generated `.changeset/*.md` file
+with the code. You can also write one directly:
+
+```markdown
+---
+bloom: patch
+async-context: patch
+---
+
+Describe the user-visible change here.
+```
+
+Omit groups that did not change. Use `patch`, `minor`, or `major` as appropriate.
+If an `async-context` change requires Bloom to use a new incompatible dependency
+version, include both groups. Conventional commits alone do not trigger bumps.
+Knope updates package versions, workspace dependency requirements, and lockfile
+entries together, and writes `CHANGELOG.md` and `async-context/CHANGELOG.md`.
+Tags are `bloom/v<version>` and `async-context/v<version>`.
+
+Repository setup (once):
+
+- In **Settings → Actions → General → Workflow permissions**, enable
+  **Allow GitHub Actions to create and approve pull requests**. The workflows
+  use the default `GITHUB_TOKEN`; no personal access token is required.
+- In each crate's crates.io settings, add a **GitHub trusted publisher** with
+  owner `mismosmi`, repository `bloom`, and workflow filename `release.yml`.
+  Leave the environment field empty, since the publishing job does not use a
+  GitHub environment. Configure all seven libraries: `async-context`,
+  `bloom-macro`, `bloom-rsx`, `bloom-core`, `bloom-html`, `bloom-ssr`, and
+  `bloom-client`.
+- [Trusted publishing](https://crates.io/docs/trusted-publishing) requires the
+  crate to exist already. For any new crate, publish its first version locally
+  before registering its trusted publisher.
+
+The publishing job exchanges its GitHub OIDC identity for a temporary crates.io
+access token immediately before uploading. No `RELEASE_TOKEN` or `CARGO_TOKEN`
+repository secrets are needed.
+
+To release, run **Prepare releases** from the Actions tab on `main`. It creates
+or updates the `release` PR. Because the PR uses `GITHUB_TOKEN`, a maintainer
+with write access must select **Approve workflows to run** on the PR before its
+CI runs can start ([GitHub documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)).
+Review the versions and changelogs, wait for CI, and merge the PR manually. **Publish releases** tests the libraries and doctests, publishes
+unpublished versions in dependency order, waits for crates.io availability
+between uploads, then uses Knope to create the GitHub releases. It publishes
+the exact merge commit, even when rerun later.
+
+If publishing fails partway through, use **Re-run failed jobs** on that run.
+Already published versions are skipped, and GitHub releases are created only
+after publishing succeeds. A prepared release cannot overwrite a version
+already uploaded to crates.io. Do not merge another release PR until the
+previous release finishes successfully.
+
+For a local preview that changes no files, run:
+
+```sh
+knope --validate
+knope prepare-release --dry-run
+```

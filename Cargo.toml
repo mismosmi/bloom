@@ -16,7 +16,7 @@ resolver = "2"
 version = "0.2.0"
 
 [workspace.dependencies]
-async-context = { path = "async-context", version = "0.1.1" }
+async-context = { path = "async-context", version = "0.1.2" }
 bloom-client = { path = "bloom-client", version = "0.2.0" }
 bloom-core = { path = "bloom-core", version = "0.2.0" }
 bloom-html = { path = "bloom-html", version = "0.2.0" }

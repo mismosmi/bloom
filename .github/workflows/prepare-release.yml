@@ -1,0 +1,43 @@
+name: Prepare releases
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-releases
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: knope-dev/action@v2.1.2
+        with:
+          version: 0.23.2
+      - name: Prepare versions and changelogs
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -C release
+          knope prepare-release
+          cargo metadata --locked --format-version 1 --no-deps > /dev/null
+      - name: Push release branch
+        run: |
+          git commit -m 'chore: prepare releases'
+          git push --force-with-lease --set-upstream origin release
+      - name: Create or update release pull request
+        run: knope create-release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
