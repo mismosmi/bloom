@@ -131,6 +131,7 @@ where
         }
         self.state = hook.state;
         self.refs = hook.refs;
+        self.memos = hook.memos;
         let element = element?;
         match self.child.as_mut() {
             Some(child) => changes.append(visit(child, Work::Update(element), ctx, pass).await?),

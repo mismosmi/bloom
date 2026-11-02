@@ -6,6 +6,19 @@ use std::{
 
 use crate::hook::Hook;
 
+/// Memoizes a generated value across renders, returning it in an [`Arc`].
+/// Calls `generate` on the first render and whenever the hash of `args` changes.
+/// Otherwise, returns a clone of the cached `Arc` without calling `generate`.
+/// Call hooks in the same order on every render, and include all inputs to the
+/// computation in `args` (use a tuple for multiple inputs).
+/// Outside a component's hook context, computes a fresh value on every call.
+///
+/// ```
+/// use bloom_core::use_memo;
+///
+/// let repeated = use_memo(("hello", 3), |(text, count)| text.repeat(count));
+/// assert_eq!(&*repeated, "hellohellohello");
+/// ```
 pub fn use_memo<A, V>(args: A, generate: fn(A) -> V) -> Arc<V>
 where
     A: Hash,
@@ -32,10 +45,62 @@ where
             }
 
             let value = Arc::new(generate(args));
-            hook.memos[index] = (new_hash, value.clone());
+            if index < hook.memos.len() {
+                hook.memos[index] = (new_hash, value.clone());
+            } else {
+                hook.memos.push((new_hash, value.clone()));
+            }
             value
         } else {
             Arc::new(generate(args))
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_context::provide_async_context;
+
+    #[tokio::test]
+    async fn caches_each_hook_and_recomputes_when_arguments_change() {
+        let hook = Hook::from_context(Arc::new(Default::default()));
+        let ((first, second), mut hook) = provide_async_context(hook, async {
+            (use_memo(2, |n| n * 10), use_memo(2, |n| n * 100))
+        })
+        .await;
+        assert_eq!(*first, 20);
+        assert_eq!(*second, 200);
+
+        hook.memo_index = 0;
+        let ((cached, changed), mut hook) = provide_async_context(hook, async {
+            (
+                use_memo(2, |_| -> i32 { panic!("cached value must be reused") }),
+                use_memo(3, |n| n * 100),
+            )
+        })
+        .await;
+        assert!(Arc::ptr_eq(&first, &cached));
+        assert_eq!(*changed, 300);
+        assert!(!Arc::ptr_eq(&second, &changed));
+
+        hook.memo_index = 0;
+        let (_, _) = provide_async_context(hook, async {
+            let cached = use_memo(2, |_| -> i32 { panic!("cached value must be reused") });
+            let updated = use_memo(3, |_| -> i32 { panic!("updated value must be cached") });
+            assert!(Arc::ptr_eq(&first, &cached));
+            assert!(Arc::ptr_eq(&changed, &updated));
+        })
+        .await;
+    }
+
+    #[test]
+    fn computes_fresh_values_without_hook_context() {
+        let first = use_memo(2, |n| n * 10);
+        let second = use_memo(2, |n| n * 10);
+
+        assert_eq!(*first, 20);
+        assert_eq!(*second, 20);
+        assert!(!Arc::ptr_eq(&first, &second));
+    }
 }

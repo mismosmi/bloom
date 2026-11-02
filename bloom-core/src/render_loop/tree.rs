@@ -36,7 +36,7 @@ where
     pub(super) render_result: Option<RenderFuture<N, E>>,
     pub(super) child: Option<Box<TreeNode<N, E>>>,
     pub(super) refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
-    pub(super) memos: Vec<Arc<dyn Any + Send + Sync>>,
+    pub(super) memos: Vec<(u64, Arc<dyn Any + Send + Sync>)>,
     /// Effects of a detached component only run once its nodes are shown
     pub(super) deferred_effects: Option<Vec<(u64, Effect)>>,
 }
