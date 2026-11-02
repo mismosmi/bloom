@@ -1,6 +1,8 @@
 name: Prepare releases
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -27,17 +29,25 @@ jobs:
         with:
           version: 0.23.2
       - name: Prepare versions and changelogs
+        id: prepare
         run: |
+          if ! compgen -G '.changeset/*.md' > /dev/null; then
+            echo 'No pending changes to release.'
+            exit 0
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -C release
           knope prepare-release
           cargo metadata --locked --format-version 1 --no-deps > /dev/null
+          echo 'prepared=true' >> "$GITHUB_OUTPUT"
       - name: Push release branch
+        if: steps.prepare.outputs.prepared == 'true'
         run: |
           git commit -m 'chore: prepare releases'
           git push --force-with-lease --set-upstream origin release
       - name: Create or update release pull request
+        if: steps.prepare.outputs.prepared == 'true'
         run: knope create-release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

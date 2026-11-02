@@ -63,8 +63,11 @@ The publishing job exchanges its GitHub OIDC identity for a temporary crates.io
 access token immediately before uploading. No `RELEASE_TOKEN` or `CARGO_TOKEN`
 repository secrets are needed.
 
-To release, run **Prepare releases** from the Actions tab on `main`. It creates
-or updates the `release` PR. Because the PR uses `GITHUB_TOKEN`, a maintainer
+**Prepare releases** runs automatically on pushes to `main` and creates or
+updates the `release` PR when `.changeset/*.md` files are pending. It skips
+preparation when no changes remain, including after a release PR is merged.
+You can also run it manually from the Actions tab on `main`.
+Because the PR uses `GITHUB_TOKEN`, a maintainer
 with write access must select **Approve workflows to run** on the PR before its
 CI runs can start ([GitHub documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)).
 Review the versions and changelogs, wait for CI, and merge the PR manually. **Publish releases** tests the libraries and doctests, publishes
