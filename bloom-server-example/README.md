@@ -10,11 +10,25 @@ An example of rendering bloom components on the server with [bloom-ssr](../bloom
 
 ## Running it
 
-The server embeds the WebAssembly bundle for the client, so build it into `pkg/` first with [wasm-pack](https://rustwasm.github.io/wasm-pack/):
+Install the WebAssembly target once:
 
 ```sh
-wasm-pack build --target web
-cargo run
+rustup target add wasm32-unknown-unknown
 ```
 
-and open http://localhost:3000.
+Then run the server from the workspace root:
+
+```sh
+cargo run -p bloom-server-example
+```
+
+Open http://localhost:3000.
+
+The build script uses [wasm-pack](https://rustwasm.github.io/wasm-pack/) from your PATH,
+or installs it with `cargo install wasm-pack --locked` into Cargo's build output directory
+if it is missing. That first installation needs network access.
+
+It compiles the client library to WebAssembly and generates its JavaScript
+bindings before Cargo compiles the server. The server embeds these assets from Cargo's
+build output directory. Changes to workspace sources rebuild the client bundle automatically.
+Use `cargo run -p bloom-server-example --release` for optimized client and server builds.

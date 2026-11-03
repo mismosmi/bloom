@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use async_channel::{Sender, bounded};
 
+use crate::Spawner;
 use crate::effect::Effect;
 use crate::state::StateUpdate;
 
@@ -18,6 +19,7 @@ pub(crate) struct Hook {
     pub(crate) context: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
     pub(crate) memos: Vec<(u64, Arc<dyn Any + Send + Sync>)>,
     pub(crate) memo_index: usize,
+    pub(crate) spawner: Spawner,
 }
 
 impl Hook {
@@ -28,6 +30,7 @@ impl Hook {
         refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
         memos: Vec<(u64, Arc<dyn Any + Send + Sync>)>,
         context: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+        spawner: Spawner,
     ) -> Self {
         Self {
             updater,
@@ -40,10 +43,14 @@ impl Hook {
             context,
             memos,
             memo_index: 0,
+            spawner,
         }
     }
 
-    pub(crate) fn from_context(context: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>) -> Self {
+    pub(crate) fn from_context(
+        context: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+        spawner: Spawner,
+    ) -> Self {
         let (signal, _) = bounded(1);
         let (updater, _) = bounded(1);
 
@@ -58,6 +65,7 @@ impl Hook {
             context,
             memos: Vec::new(),
             memo_index: 0,
+            spawner,
         }
     }
 }
