@@ -1,13 +1,10 @@
 use async_context::with_async_context_mut;
-use std::{
-    hash::{DefaultHasher, Hash, Hasher},
-    sync::Arc,
-};
+use std::sync::Arc;
 
-use crate::hook::Hook;
+use crate::{hook::Hook, identify::Identify};
 
 /// Memoizes a generated value across renders, returning it in an [`Arc`].
-/// Calls `generate` on the first render and whenever the hash of `args` changes.
+/// Calls `generate` on the first render and whenever the identity of `args` changes.
 /// Otherwise, returns a clone of the cached `Arc` without calling `generate`.
 /// Call hooks in the same order on every render, and include all inputs to the
 /// computation in `args` (use a tuple for multiple inputs).
@@ -21,20 +18,18 @@ use crate::hook::Hook;
 /// ```
 pub fn use_memo<A, V>(args: A, generate: fn(A) -> V) -> Arc<V>
 where
-    A: Hash,
+    A: Identify,
     V: Send + Sync + 'static,
 {
-    let mut hasher = DefaultHasher::new();
-    args.hash(&mut hasher);
-    let new_hash = hasher.finish();
+    let new_id = args.id();
 
     with_async_context_mut(|hook: Option<&mut Hook>| {
         if let Some(hook) = hook {
             let index = hook.memo_index;
             hook.memo_index += 1;
 
-            if let Some((old_hash, value)) = hook.memos.get(index) {
-                if old_hash == &new_hash {
+            if let Some((old_id, value)) = hook.memos.get(index) {
+                if old_id == &new_id {
                     let value: Arc<V> = value
                         .clone()
                         .downcast()
@@ -46,9 +41,9 @@ where
 
             let value = Arc::new(generate(args));
             if index < hook.memos.len() {
-                hook.memos[index] = (new_hash, value.clone());
+                hook.memos[index] = (new_id, value.clone());
             } else {
-                hook.memos.push((new_hash, value.clone()));
+                hook.memos.push((new_id, value.clone()));
             }
             value
         } else {

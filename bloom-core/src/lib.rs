@@ -1,3 +1,4 @@
+mod callback;
 mod commit;
 mod component;
 mod context;
@@ -5,6 +6,7 @@ mod effect;
 mod element;
 mod fragment;
 mod hook;
+mod identify;
 mod key;
 mod memo;
 mod object_ref;
@@ -49,11 +51,14 @@ mod suspense;
 /// let greeting = Greeting::builder().build();
 /// ```
 pub use bloom_macro::component;
+pub use bloom_macro::Identify;
+pub use callback::use_callback;
 pub use component::Component;
 pub use context::{_get_context, use_context, Provider, ProviderBuilder};
 pub use effect::use_effect;
 pub use element::{keyed, Element};
 pub use fragment::{Fragment, FragmentBuilder};
+pub use identify::Identify;
 pub use key::Key;
 pub use memo::use_memo;
 pub use object_ref::{use_ref, use_ref_with_default};
