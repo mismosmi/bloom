@@ -1,7 +1,5 @@
 use std::{collections::HashMap, mem};
 
-use futures_util::task::Spawn;
-
 use crate::{commit::Changes, render_context::RenderContext, Element, Key};
 
 use super::{
@@ -11,16 +9,15 @@ use super::{
 };
 
 /// Children are matched by key if any of them has one and by position otherwise.
-pub(super) async fn update_children<N, E, S>(
+pub(super) async fn update_children<N, E>(
     tree_nodes: &mut Vec<TreeNode<N, E>>,
     elements: Vec<Element<N, E>>,
     ctx: RenderContext<N>,
-    pass: &Pass<S>,
+    pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
 {
     if tree_nodes.iter().any(|node| node.key().is_some())
         || elements
@@ -33,16 +30,15 @@ where
     }
 }
 
-pub(super) async fn update_children_by_position<N, E, S>(
+pub(super) async fn update_children_by_position<N, E>(
     tree_nodes: &mut Vec<TreeNode<N, E>>,
     mut elements: Vec<Element<N, E>>,
     ctx: RenderContext<N>,
-    pass: &Pass<S>,
+    pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
 {
     let kept = elements.len().min(tree_nodes.len());
     let removed: Vec<TreeNode<N, E>> = tree_nodes.drain(kept..).collect();
@@ -93,16 +89,15 @@ pub(super) fn slots(keys: impl Iterator<Item = Option<Key>>) -> impl Iterator<It
     })
 }
 
-pub(super) async fn update_keyed_children<N, E, S>(
+pub(super) async fn update_keyed_children<N, E>(
     tree_nodes: &mut Vec<TreeNode<N, E>>,
     elements: Vec<Element<N, E>>,
     ctx: RenderContext<N>,
-    pass: &Pass<S>,
+    pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
 {
     let old_nodes = mem::take(tree_nodes);
     let mut old_indices = HashMap::with_capacity(old_nodes.len());

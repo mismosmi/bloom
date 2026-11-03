@@ -64,7 +64,7 @@ mod tests {
 
     #[tokio::test]
     async fn caches_each_hook_and_recomputes_when_arguments_change() {
-        let hook = Hook::from_context(Arc::new(Default::default()));
+        let hook = Hook::from_context(Arc::new(Default::default()), crate::Spawner::mock());
         let ((first, second), mut hook) = provide_async_context(hook, async {
             (use_memo(2, |n| n * 10), use_memo(2, |n| n * 100))
         })

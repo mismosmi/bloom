@@ -1,9 +1,6 @@
 use std::{mem, sync::Arc};
 
-use futures_util::{
-    future,
-    task::{Spawn, SpawnExt},
-};
+use futures_util::{future, task::SpawnExt};
 
 use crate::{commit::Changes, component::ComponentDiff, render_context::RenderContext, Element};
 
@@ -17,16 +14,15 @@ use super::{
 /// Components that render are visited in their own task on the spawner, so siblings are rendered
 /// and diffed in parallel. Everything else is visited in place and continues in a new task
 /// every `TASK_DEPTH` levels, so deeply nested trees fit on the stack.
-pub(super) fn visit<'a, N, E, S>(
+pub(super) fn visit<'a, N, E>(
     node: &'a mut TreeNode<N, E>,
     work: Work<N, E>,
     ctx: RenderContext<N>,
-    pass: &'a Pass<S>,
+    pass: &'a Pass,
 ) -> Visit<'a, N, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
 {
     Box::pin(async move {
         let mut ctx = ctx;
@@ -44,16 +40,15 @@ where
 }
 
 /// Moves a subtree into a task on the spawner and puts it back once it is visited
-pub(super) async fn visit_in_task<N, E, S>(
+pub(super) async fn visit_in_task<N, E>(
     node: &mut TreeNode<N, E>,
     work: Work<N, E>,
     mut ctx: RenderContext<N>,
-    pass: &Pass<S>,
+    pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
 {
     let mut subtree = mem::replace(node, TreeNode::Fragment(Vec::new()));
     let task_pass = pass.clone();
@@ -81,16 +76,15 @@ pub(super) async fn visit_all<N, E>(visits: Vec<Visit<'_, N, E>>) -> Result<Chan
 
 /// A component that renders is moved into a task on the spawner, so sibling components render
 /// in parallel, and put back once it is visited. Other components are visited in place.
-pub(super) async fn visit_component<N, E, S>(
+pub(super) async fn visit_component<N, E>(
     node: &mut TreeNode<N, E>,
     work: ComponentWork<N, E>,
     ctx: RenderContext<N>,
-    pass: &Pass<S>,
+    pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
 {
     let TreeNode::Component(component) = node else {
         unreachable!("Only components are visited as components")
@@ -118,15 +112,14 @@ where
     result
 }
 
-pub(super) async fn create<N, E, S>(
+pub(super) async fn create<N, E>(
     node: &mut TreeNode<N, E>,
     ctx: RenderContext<N>,
-    pass: &Pass<S>,
+    pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
 {
     let mut changes = Changes::default();
     match node {
@@ -209,15 +202,14 @@ where
     anchors
 }
 
-pub(super) async fn reload<N, E, S>(
+pub(super) async fn reload<N, E>(
     node: &mut TreeNode<N, E>,
     ctx: RenderContext<N>,
-    pass: &Pass<S>,
+    pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
 {
     match node {
         TreeNode::Component(_) => visit_component(node, ComponentWork::Reload, ctx, pass).await,
@@ -291,16 +283,15 @@ where
     }
 }
 
-pub(super) async fn update<N, E, S>(
+pub(super) async fn update<N, E>(
     node: &mut TreeNode<N, E>,
     next: Element<N, E>,
     ctx: RenderContext<N>,
-    pass: &Pass<S>,
+    pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
 {
     // A changed key means a different element, so it is replaced instead of
     // updated in place. Removing the old element runs its cleanups.
@@ -367,15 +358,14 @@ where
 }
 
 /// Runs after everything below a suspense boundary has been visited
-pub(super) async fn settle<N, E, S>(
+pub(super) async fn settle<N, E>(
     suspense: &mut TreeSuspense<N, E>,
     ctx: RenderContext<N>,
-    pass: &Pass<S>,
+    pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
 {
     let pending = !suspense.is_revealed() && suspense.children.iter().any(TreeNode::is_pending);
     let mut changes = Changes::default();
@@ -451,16 +441,15 @@ where
     }
 }
 
-pub(super) async fn replace_node<N, E, S>(
+pub(super) async fn replace_node<N, E>(
     node: &mut TreeNode<N, E>,
     element: Element<N, E>,
     ctx: RenderContext<N>,
-    pass: &Pass<S>,
+    pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
 {
     let old_node = mem::replace(node, TreeNode::from(element));
     let mut changes = visit(node, Work::Create, ctx.clone(), pass).await?;

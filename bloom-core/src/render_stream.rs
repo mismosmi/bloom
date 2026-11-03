@@ -14,7 +14,7 @@ use futures_util::{
     Future, Stream, StreamExt,
 };
 
-use crate::{hook::Hook, Element};
+use crate::{hook::Hook, Element, Spawner};
 
 use pin_project::pin_project;
 
@@ -74,20 +74,22 @@ impl RenderContext {
     }
 }
 
-fn render_element<N, E, S>(
+fn render_element<N, E>(
     element: Element<N, E>,
-    spawner: S,
+    spawner: Spawner,
     ctx: RenderContext,
 ) -> Pin<Box<dyn Future<Output = NodeStream<N, E>> + Send>>
 where
     N: From<String> + Send + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + 'static,
 {
     match element {
         Element::Component(component) => Box::pin(async move {
-            match provide_async_context(Hook::from_context(ctx.context.clone()), component.render())
-                .await
+            match provide_async_context(
+                Hook::from_context(ctx.context.clone(), spawner.clone()),
+                component.render(),
+            )
+            .await
             {
                 (Ok(element), _) => render_element(element, spawner, ctx).await,
                 (Err(error), _) => NodeStream::ready(Err(error)),
@@ -95,33 +97,32 @@ where
         }),
         Element::Node(node, children) => Box::pin(future::ready(NodeStream::ready(Ok((
             node,
-            render_children(children, spawner, ctx),
+            render_children(children, &spawner, ctx),
         ))))),
         Element::Fragment(children) => {
-            Box::pin(future::ready(render_children(children, spawner, ctx)))
+            Box::pin(future::ready(render_children(children, &spawner, ctx)))
         }
         Element::Provider(provider, children) => Box::pin(future::ready(render_children(
             children,
-            spawner,
+            &spawner,
             ctx.with_context(provider),
         ))),
         Element::Keyed(_, element) => render_element(*element, spawner, ctx),
         // Server-side rendering waits for all children anyway, so the fallback is never needed
         Element::Suspense(_, children) => {
-            Box::pin(future::ready(render_children(children, spawner, ctx)))
+            Box::pin(future::ready(render_children(children, &spawner, ctx)))
         }
     }
 }
 
-fn render_children<N, E, S>(
+fn render_children<N, E>(
     children: Vec<Element<N, E>>,
-    spawner: S,
+    spawner: &Spawner,
     ctx: RenderContext,
 ) -> NodeStream<N, E>
 where
     N: From<String> + Send + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + 'static,
 {
     let children = children
         .into_iter()
@@ -140,11 +141,11 @@ pub fn render_stream<N, E, S>(element: Element<N, E>, spawner: S) -> NodeStream<
 where
     N: From<String> + Send + Sync + 'static,
     E: Send + 'static,
-    S: Spawn + Clone + Send + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     NodeStream::wrap(render_element(
         element,
-        spawner.clone(),
+        Spawner::new(spawner),
         RenderContext::new(),
     ))
 }

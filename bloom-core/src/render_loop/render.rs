@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures_util::task::{Spawn, SpawnExt};
+use futures_util::task::SpawnExt;
 
 use crate::{
     commit::Changes,
@@ -35,15 +35,14 @@ where
     }
 
     /// Picks up a suspended render that has finished and reloads the child
-    pub(super) async fn reload<S>(
+    pub(super) async fn reload(
         &mut self,
         ctx: RenderContext<N>,
-        pass: &Pass<S>,
+        pass: &Pass,
     ) -> Result<Changes<N>, E>
     where
         N: Send + Sync + 'static,
         E: Send + 'static,
-        S: Spawn + Clone + Send + Sync + 'static,
     {
         if let Some(render_result) = self.render_result.take() {
             match run_or_suspend(render_result) {
@@ -64,15 +63,14 @@ where
     /// Renders the component with its pending state updates applied.
     /// A render that does not finish on its first poll suspends and keeps running on the spawner,
     /// its result is picked up by a later render pass.
-    pub(super) async fn render<S>(
+    pub(super) async fn render(
         &mut self,
         ctx: RenderContext<N>,
-        pass: &Pass<S>,
+        pass: &Pass,
     ) -> Result<Changes<N>, E>
     where
         N: Send + Sync + 'static,
         E: Send + 'static,
-        S: Spawn + Clone + Send + Sync + 'static,
     {
         while let Ok(state_update) = self.updates.try_recv() {
             state_update.apply(&mut self.state);
@@ -87,6 +85,7 @@ where
             self.refs.clone(),
             self.memos.clone(),
             ctx.context.clone(),
+            pass.spawner.clone(),
         );
         let component = Arc::clone(&self.component);
         match run_or_suspend(Box::pin(async_context::provide_async_context(
@@ -111,16 +110,15 @@ where
     }
 
     /// Queues the effects of a finished render and diffs its output
-    pub(super) async fn apply_render<S>(
+    pub(super) async fn apply_render(
         &mut self,
         (element, hook): RenderOutput<N, E>,
         ctx: RenderContext<N>,
-        pass: &Pass<S>,
+        pass: &Pass,
     ) -> Result<Changes<N>, E>
     where
         N: Send + Sync + 'static,
         E: Send + 'static,
-        S: Spawn + Clone + Send + Sync + 'static,
     {
         let mut changes = Changes::default();
         // Effects of a detached component only run once its nodes are shown

@@ -9,7 +9,7 @@ use futures_util::{task::Spawn, StreamExt};
 pub async fn render_to_string<E, S>(element: Element<HtmlNode, E>, spawner: S) -> Result<String, E>
 where
     E: Send + 'static,
-    S: Spawn + Send + Clone + 'static,
+    S: Spawn + Send + Sync + Clone + 'static,
 {
     let mut output = String::new();
 

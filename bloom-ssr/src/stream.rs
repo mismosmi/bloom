@@ -62,7 +62,7 @@ impl<E> StringStream<E> {
 pub fn render_to_stream<E, S>(element: Element<HtmlNode, E>, spawner: S) -> StringStream<E>
 where
     E: Send + 'static,
-    S: Spawn + Clone + Send + 'static,
+    S: Spawn + Clone + Send + Sync + 'static,
 {
     StringStream::new(render_stream(element, spawner))
 }

@@ -12,6 +12,7 @@ mod render_context;
 mod render_loop;
 mod render_stream;
 mod result;
+mod spawn;
 mod state;
 mod suspense;
 
@@ -59,6 +60,7 @@ pub use object_ref::{use_ref, use_ref_with_default};
 pub use render_loop::{render_loop, ObjectModel};
 pub use render_stream::{render_stream, NodeStream};
 pub use result::Result;
+pub use spawn::{use_spawn, Spawner};
 pub use state::use_state;
 pub use suspense::Suspense;
 

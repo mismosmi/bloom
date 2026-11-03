@@ -20,7 +20,7 @@ use crate::{
     context::ContextMap,
     hook::Hook,
     render_context::RenderContext,
-    Element,
+    Element, Spawner,
 };
 
 use tree::{TreeNode, TreeRoot};
@@ -31,7 +31,7 @@ type RenderFuture<N, E> = Pin<Box<dyn Future<Output = RenderOutput<N, E>> + Send
 type Visit<'a, N, E> = Pin<Box<dyn Future<Output = Result<Changes<N>, E>> + Send + 'a>>;
 
 /// Levels of nested nodes that are visited in one task before continuing in a new one
-const TASK_DEPTH: usize = 64;
+const TASK_DEPTH: usize = 32;
 
 /// What a render pass does with a subtree
 enum Work<N, E>
@@ -52,8 +52,8 @@ enum ComponentWork<N, E> {
 
 /// Shared by all tasks of the render loop, each task gets its own clone
 #[derive(Clone)]
-struct Pass<S> {
-    spawner: S,
+struct Pass {
+    spawner: Spawner,
     signal: Sender<()>,
 }
 
@@ -202,7 +202,7 @@ where
         .expect("Failed to send message to trigger initial render");
 
     let pass = Pass {
-        spawner,
+        spawner: Spawner::new(spawner),
         signal: signal_sender,
     };
     let mut cleanups = Cleanups::default();
