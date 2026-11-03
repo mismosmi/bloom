@@ -2,8 +2,11 @@
 
 use axum::response::IntoResponse;
 
-static BUNDLE_JS: &[u8] = include_bytes!("../pkg/bloom_server_example.js");
-static BUNDLE_WASM: &[u8] = include_bytes!("../pkg/bloom_server_example_bg.wasm");
+static BUNDLE_JS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/pkg/bloom_server_example.js"));
+static BUNDLE_WASM: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/pkg/bloom_server_example_bg.wasm"
+));
 
 pub async fn bundle_js() -> impl IntoResponse {
     ([("Content-Type", "text/javascript")], BUNDLE_JS)
