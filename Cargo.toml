@@ -14,13 +14,13 @@ resolver = "3"
 
 [workspace.package]
 edition = "2024"
-version = "0.2.1"
+version = "0.2.2"
 
 [workspace.dependencies]
-async-context = { path = "async-context", version = "0.1.3" }
-bloom-client = { path = "bloom-client", version = "0.2.1" }
-bloom-core = { path = "bloom-core", version = "0.2.1" }
-bloom-html = { path = "bloom-html", version = "0.2.1" }
-bloom-macro = { path = "bloom-macro", version = "0.2.1" }
-bloom-rsx = { path = "bloom-rsx", version = "0.2.1" }
-bloom-ssr = { path = "bloom-ssr", version = "0.2.1" }
+async-context = { path = "async-context", version = "0.1.4" }
+bloom-client = { path = "bloom-client", version = "0.2.2" }
+bloom-core = { path = "bloom-core", version = "0.2.2" }
+bloom-html = { path = "bloom-html", version = "0.2.2" }
+bloom-macro = { path = "bloom-macro", version = "0.2.2" }
+bloom-rsx = { path = "bloom-rsx", version = "0.2.2" }
+bloom-ssr = { path = "bloom-ssr", version = "0.2.2" }
