@@ -1,4 +1,4 @@
-use crate::{use_memo, Identify};
+use crate::{Identify, use_memo};
 use std::sync::Arc;
 
 struct Callback<C, A, R>

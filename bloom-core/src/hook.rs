@@ -2,11 +2,11 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use async_channel::{bounded, Sender};
+use async_channel::{Sender, bounded};
 
+use crate::Spawner;
 use crate::effect::Effect;
 use crate::state::StateUpdate;
-use crate::Spawner;
 
 pub(crate) struct Hook {
     pub(crate) signal: Sender<()>,

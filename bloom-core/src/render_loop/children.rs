@@ -1,11 +1,11 @@
 use std::{collections::HashMap, mem};
 
-use crate::{commit::Changes, render_context::RenderContext, Element, Key};
+use crate::{Element, Key, commit::Changes, render_context::RenderContext};
 
 use super::{
-    tree::{element_key, TreeNode},
-    visit::{remove, sibling_anchors, visit, visit_all},
     Pass, Work,
+    tree::{TreeNode, element_key},
+    visit::{remove, sibling_anchors, visit, visit_all},
 };
 
 /// Children are matched by key if any of them has one and by position otherwise.
@@ -163,10 +163,10 @@ where
     let mut sibling = ctx.sibling.clone();
     for (tree_node, matched) in tree_nodes.iter().zip(&matches).rev() {
         anchors.push(sibling.clone());
-        if matched.is_some() {
-            if let Some(first_node) = tree_node.get_first_node() {
-                sibling = Some(first_node);
-            }
+        if matched.is_some()
+            && let Some(first_node) = tree_node.get_first_node()
+        {
+            sibling = Some(first_node);
         }
     }
     anchors.reverse();

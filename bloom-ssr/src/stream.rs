@@ -1,8 +1,8 @@
 use std::task::Poll;
 
-use bloom_core::{render_stream, Element, NodeStream};
+use bloom_core::{Element, NodeStream, render_stream};
 use bloom_html::HtmlNode;
-use futures_util::{task::Spawn, Stream, StreamExt};
+use futures_util::{Stream, StreamExt, task::Spawn};
 
 use crate::serializer::serialize_node_open;
 
@@ -32,13 +32,10 @@ impl<E> Stream for StringStream<E> {
                         Poll::Ready(Some(Ok(format!("<!--{}-->", comment.text()))))
                     }
                 },
-                Poll::Ready(None) => {
-                    if let Some((Some(tag_name), _)) = self.stack.pop() {
-                        Poll::Ready(Some(Ok(format!("</{}>", tag_name))))
-                    } else {
-                        Poll::Ready(None)
-                    }
-                }
+                Poll::Ready(None) => match self.stack.pop() {
+                    Some((Some(tag_name), _)) => Poll::Ready(Some(Ok(format!("</{}>", tag_name)))),
+                    _ => Poll::Ready(None),
+                },
                 Poll::Pending => Poll::Pending,
                 Poll::Ready(Some(Err(error))) => Poll::Ready(Some(Err(error))),
             }

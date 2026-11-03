@@ -11,16 +11,16 @@ mod visit;
 
 use std::{pin::Pin, sync::Arc};
 
-use async_channel::{bounded, Sender};
-use futures_util::{future, task::Spawn, Future};
+use async_channel::{Sender, bounded};
+use futures_util::{Future, future, task::Spawn};
 
 use crate::{
+    Element, Spawner,
     commit::{Changes, Cleanups},
     component::AnyComponent,
     context::ContextMap,
     hook::Hook,
     render_context::RenderContext,
-    Element, Spawner,
 };
 
 use tree::{TreeNode, TreeRoot};

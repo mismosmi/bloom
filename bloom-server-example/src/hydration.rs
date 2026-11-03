@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bloom_client::get_element_by_id;
-use bloom_core::{use_state, Component, Element};
-use bloom_html::{prelude::*, HtmlNode};
-use bloom_rsx::{rsx, NoopBuilder};
+use bloom_core::{Component, Element, use_state};
+use bloom_html::{HtmlNode, prelude::*};
+use bloom_rsx::{NoopBuilder, rsx};
 
 #[derive(PartialEq, NoopBuilder)]
 struct HydrationPage;

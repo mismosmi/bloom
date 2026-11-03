@@ -1,7 +1,7 @@
 [package]
 name = "async-context"
 version = "0.1.3"
-edition = "2021"
+edition.workspace = true
 description = "Provide context to async functions"
 license = "MIT"
 authors = ["Michel Smola <dev@michelsmola.de>"]

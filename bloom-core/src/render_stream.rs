@@ -8,13 +8,13 @@ use std::{
 
 use async_context::provide_async_context;
 use futures_util::{
-    future::{self},
-    stream::{once, FuturesOrdered},
-    task::Spawn,
     Future, Stream, StreamExt,
+    future::{self},
+    stream::{FuturesOrdered, once},
+    task::Spawn,
 };
 
-use crate::{hook::Hook, Element, Spawner};
+use crate::{Element, Spawner, hook::Hook};
 
 use pin_project::pin_project;
 

@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_quote, Data, DeriveInput, Fields, Index};
+use syn::{Data, DeriveInput, Fields, Index, parse_quote};
 
 pub(crate) fn derive_identify(input: DeriveInput) -> syn::Result<TokenStream> {
     let name = &input.ident;

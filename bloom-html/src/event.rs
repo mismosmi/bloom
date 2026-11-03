@@ -5,7 +5,7 @@ pub type EventHandler = Box<dyn Fn(web_sys::Event) + Send + Sync + 'static>;
 #[cfg(test)]
 mod tests {
 
-    use crate::{tag::button, HtmlElement};
+    use crate::{HtmlElement, tag::button};
 
     #[test]
     fn build_button() {

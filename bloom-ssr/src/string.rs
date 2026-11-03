@@ -1,6 +1,6 @@
-use bloom_core::{render_stream, Element};
+use bloom_core::{Element, render_stream};
 use bloom_html::HtmlNode;
-use futures_util::{task::Spawn, StreamExt};
+use futures_util::{StreamExt, task::Spawn};
 
 /// render_to_string takes a bloom-core Element and a spawner and returns a string.
 /// Prefer using render_to_stream where possible to get the advantages of streaming rendering.

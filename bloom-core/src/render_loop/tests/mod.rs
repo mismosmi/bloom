@@ -10,19 +10,19 @@ use std::{
     collections::{HashMap, VecDeque},
     hash::Hash,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
 
 use async_channel::{Receiver, RecvError, Sender};
 use async_trait::async_trait;
-use futures_util::{task::Spawn, Future, FutureExt};
+use futures_util::{Future, FutureExt, task::Spawn};
 
 use crate::{
-    keyed, use_effect, use_ref_with_default, use_state, Component, Element, Fragment, ObjectModel,
-    Provider, Suspense,
+    Component, Element, Fragment, ObjectModel, Provider, Suspense, keyed, use_effect,
+    use_ref_with_default, use_state,
 };
 
 use super::render_loop;
@@ -156,7 +156,7 @@ impl InnerMockObjectModel {
         children.remove(index);
     }
 
-    fn render_cycle(&self) -> impl Future<Output = ()> {
+    fn render_cycle(&self) -> impl Future<Output = ()> + use<> {
         let start_signal = self.start_signal.1.clone();
         let finalize_signal = self.finalize_signal.1.clone();
         async move {

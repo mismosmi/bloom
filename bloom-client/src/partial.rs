@@ -1,6 +1,6 @@
 //! Partial rendering support for bloom is WIP
 use async_channel::Sender;
-use bloom_core::{render_loop, Element, ObjectModel};
+use bloom_core::{Element, ObjectModel, render_loop};
 use bloom_html::HtmlNode;
 use std::{
     any::{Any, TypeId},
@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{console, js_sys::Array, window, Node};
+use web_sys::{Node, console, js_sys::Array, window};
 
 use crate::{dom::Dom, interned_str::interned, spawner::WasmSpawner};
 
@@ -105,17 +105,18 @@ where
     E: Send + 'static + Debug,
 {
     spawn_local(async {
-        let first_node = if let Some(first_node) = window()
+        let first_node = match window()
             .expect("Failed to get Window")
             .document()
             .expect("Failed to get Document")
             .query_selector(&format!("[data-bloom-partial='{}']", partial_id))
             .expect("Failed to query selector for partial")
         {
-            first_node
-        } else {
-            console::warn_2(&"Failed to find Partial Element".into(), &partial_id.into());
-            return;
+            Some(first_node) => first_node,
+            _ => {
+                console::warn_2(&"Failed to find Partial Element".into(), &partial_id.into());
+                return;
+            }
         };
 
         let root_dom_node = first_node

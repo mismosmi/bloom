@@ -1,9 +1,9 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use rstml::node::{atoms::TagGenerics, Node, NodeAttribute, NodeBlock, NodeName};
+use rstml::node::{Node, NodeAttribute, NodeBlock, NodeName, atoms::TagGenerics};
 use rstml::parse2;
 use syn::{
-    parse_macro_input, Data, DataStruct, DeriveInput, Expr, ExprBlock, ExprPath, Fields, Stmt,
+    Data, DataStruct, DeriveInput, Expr, ExprBlock, ExprPath, Fields, Stmt, parse_macro_input,
 };
 
 /// The core rsx macro.
@@ -86,12 +86,10 @@ fn attribute_value(value: &Expr) -> &Expr {
         block,
         ..
     }) = value
-    {
-        if let ([], None, [Stmt::Expr(expr, None)]) =
+        && let ([], None, [Stmt::Expr(expr, None)]) =
             (attrs.as_slice(), label, block.stmts.as_slice())
-        {
-            return expr;
-        }
+    {
+        return expr;
     }
     value
 }
@@ -325,7 +323,10 @@ mod tests {
             .next()
             .unwrap(),
         );
-        assert_eq!(actual.to_string(), "MyComponent :: builder () . children ({ let mut children = Vec :: with_capacity (1usize) ; children . push (tag (\"div\") . attr (\"id\" , \"child\") . build () . into ()) ; children . into () }) . number_prop (123) . boolean_prop (true) . build () . into ()")
+        assert_eq!(
+            actual.to_string(),
+            "MyComponent :: builder () . children ({ let mut children = Vec :: with_capacity (1usize) ; children . push (tag (\"div\") . attr (\"id\" , \"child\") . build () . into ()) ; children . into () }) . number_prop (123) . boolean_prop (true) . build () . into ()"
+        )
     }
 
     #[test]
@@ -356,7 +357,10 @@ mod tests {
             .next()
             .unwrap(),
         );
-        assert_eq!(actual.to_string(), "MyComponent :: builder () . number_prop (123) . boolean_prop (true) . label (\"test\") . build () . into ()")
+        assert_eq!(
+            actual.to_string(),
+            "MyComponent :: builder () . number_prop (123) . boolean_prop (true) . label (\"test\") . build () . into ()"
+        )
     }
 
     #[test]

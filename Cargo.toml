@@ -10,9 +10,10 @@ members = [
     "bloom-rsx",
     "bloom-macro",
 ]
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
+edition = "2024"
 version = "0.2.1"
 
 [workspace.dependencies]

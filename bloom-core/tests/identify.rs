@@ -1,4 +1,4 @@
-use bloom_core::{use_memo, Identify};
+use bloom_core::{Identify, use_memo};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 // The payload does not participate in identity and deliberately does not implement Hash.

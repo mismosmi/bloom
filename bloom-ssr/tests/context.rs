@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
-use bloom_core::{component, use_context, Element, Provider};
-use bloom_html::{prelude::*, HtmlNode};
+use bloom_core::{Element, Provider, component, use_context};
+use bloom_html::{HtmlNode, prelude::*};
 use bloom_rsx::rsx;
 
 // Deliberately not Clone: consumers must share the provided value.
