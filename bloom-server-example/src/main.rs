@@ -1,8 +1,8 @@
 #![cfg(not(target_arch = "wasm32"))]
-use axum::{body::Body, extract::Query, routing::get, Router};
-use bloom_core::{component, Element};
-use bloom_html::{tag::div, text, HtmlNode};
-use bloom_server_example::{hydration, partial_hydration, TokioSpawner};
+use axum::{Router, body::Body, extract::Query, routing::get};
+use bloom_core::{Element, component};
+use bloom_html::{HtmlNode, tag::div, text};
+use bloom_server_example::{TokioSpawner, hydration, partial_hydration};
 use bloom_ssr::render_to_stream;
 use serde::Deserialize;
 

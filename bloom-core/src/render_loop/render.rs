@@ -6,13 +6,13 @@ use crate::{
     commit::Changes,
     hook::Hook,
     render_context::RenderContext,
-    suspense::{run_or_suspend, RunOrSuspendResult},
+    suspense::{RunOrSuspendResult, run_or_suspend},
 };
 
 use super::{
+    ComponentWork, Pass, RenderOutput, Work,
     tree::{TreeComponent, TreeNode},
     visit::visit,
-    ComponentWork, Pass, RenderOutput, Work,
 };
 
 impl<N, E> TreeComponent<N, E>
@@ -51,7 +51,7 @@ where
                     self.render_result = Some(render_result)
                 }
                 RunOrSuspendResult::Done(output) => {
-                    return self.apply_render(output, ctx, pass).await
+                    return self.apply_render(output, ctx, pass).await;
                 }
             }
         }

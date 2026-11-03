@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::{
-    effect::{Cleanup, Effect},
     ObjectModel,
+    effect::{Cleanup, Effect},
 };
 
 /// Identifies a component across render passes

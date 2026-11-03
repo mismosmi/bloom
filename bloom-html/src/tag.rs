@@ -1,5 +1,5 @@
 //! Some basic html tags
-use crate::{element::HtmlElementBuilder, HtmlNode};
+use crate::{HtmlNode, element::HtmlElementBuilder};
 
 pub fn div() -> HtmlElementBuilder<&'static str> {
     HtmlNode::element("div")

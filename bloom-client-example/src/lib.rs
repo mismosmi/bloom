@@ -1,8 +1,8 @@
 use std::{panic, sync::Arc};
 
 use bloom_client::{get_element_by_id, render};
-use bloom_core::{use_effect, use_ref, use_state, Element};
-use bloom_html::{tag, tag::div, DomRef, HtmlNode};
+use bloom_core::{Element, use_effect, use_ref, use_state};
+use bloom_html::{DomRef, HtmlNode, tag, tag::div};
 use bloom_rsx::rsx;
 use wasm_bindgen::prelude::*;
 use web_sys::console;

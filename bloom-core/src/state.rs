@@ -1,9 +1,9 @@
 use std::{any::Any, collections::HashMap, hash::Hash, ops::Deref, sync::Arc};
 
-use async_channel::{bounded, Sender};
+use async_channel::{Sender, bounded};
 use async_context::with_async_context_mut;
 
-use crate::{hook::Hook, Element};
+use crate::{Element, hook::Hook};
 
 type StateUpdateFn = Box<
     dyn FnOnce(Option<Arc<dyn Any + Send + Sync>>) -> Arc<dyn Any + Send + Sync> + Send + 'static,
