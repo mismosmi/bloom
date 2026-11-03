@@ -1,7 +1,7 @@
 [package]
 name = "bloom-ssr"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
 authors = ["Michel Smola <dev@michelsmola.de>"]
 license = "MIT"
 description = "Server-side rendering for bloom-html"

@@ -1,8 +1,8 @@
 //! Partial hydration: the page is rendered on the server and only the
 //! interactive "islands" are hydrated on the client. Everything else stays
 //! static HTML and never runs on the client.
-use bloom_core::{component, use_state, Element};
-use bloom_html::{prelude::*, HtmlNode};
+use bloom_core::{Element, component, use_state};
+use bloom_html::{HtmlNode, prelude::*};
 use bloom_rsx::rsx;
 
 /// An interactive island.

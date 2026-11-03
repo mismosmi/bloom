@@ -3,23 +3,23 @@ use std::{
     collections::HashMap,
     mem,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
 };
 
-use async_channel::{unbounded, Receiver, Sender};
+use async_channel::{Receiver, Sender, unbounded};
 
 use crate::{
+    Element, Key,
     commit::{Changes, ComponentId},
     component::AnyComponent,
     effect::Effect,
     render_context::RenderContext,
     state::StateUpdate,
-    Element, Key,
 };
 
-use super::{visit::remove, RenderFuture};
+use super::{RenderFuture, visit::remove};
 
 static NEXT_COMPONENT_ID: AtomicU64 = AtomicU64::new(0);
 

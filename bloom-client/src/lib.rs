@@ -1,12 +1,12 @@
 use std::{fmt::Debug, sync::Arc};
 
-use bloom_core::{render_loop, Element};
+use bloom_core::{Element, render_loop};
 use bloom_html::HtmlNode;
 use dom::Dom;
 use interned_str::interned;
 use spawner::WasmSpawner;
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{console, wasm_bindgen::JsCast, window, HtmlElement};
+use web_sys::{HtmlElement, console, wasm_bindgen::JsCast, window};
 
 mod dom;
 mod interned_str;
@@ -96,12 +96,12 @@ mod tests {
     use std::{cell::RefCell, sync::Arc};
 
     use async_trait::async_trait;
-    use bloom_core::{use_state, Component, Element};
-    use bloom_html::{prelude::*, HtmlNode};
+    use bloom_core::{Component, Element, use_state};
+    use bloom_html::{HtmlNode, prelude::*};
     use bloom_rsx::rsx;
     use wasm_bindgen_futures::JsFuture;
     use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
-    use web_sys::{js_sys::Promise, wasm_bindgen::JsCast, window, HtmlElement};
+    use web_sys::{HtmlElement, js_sys::Promise, wasm_bindgen::JsCast, window};
 
     use super::render;
 

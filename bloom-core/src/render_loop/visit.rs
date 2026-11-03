@@ -5,12 +5,12 @@ use futures_util::{
     task::{Spawn, SpawnExt},
 };
 
-use crate::{commit::Changes, component::ComponentDiff, render_context::RenderContext, Element};
+use crate::{Element, commit::Changes, component::ComponentDiff, render_context::RenderContext};
 
 use super::{
+    ComponentWork, Pass, TASK_DEPTH, Visit, Work,
     children::update_children,
-    tree::{element_key, SuspenseState, TreeNode, TreeSuspense},
-    ComponentWork, Pass, Visit, Work, TASK_DEPTH,
+    tree::{SuspenseState, TreeNode, TreeSuspense, element_key},
 };
 
 /// Diffs a subtree and collects its changes in document order.

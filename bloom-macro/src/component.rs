@@ -75,36 +75,37 @@ pub(crate) fn transform_component(
                         panic!("{}", RETURN_TYPE_ERROR_MSG)
                     };
 
-                let (node_type, element_error_type) =
-                    if let PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-                        args,
-                        ..
-                    }) = element_type
-                        .path
-                        .segments
-                        .into_iter()
-                        .next_back()
-                        .expect(RETURN_TYPE_ERROR_MSG)
-                        .arguments
-                    {
+                let (node_type, element_error_type) = match element_type
+                    .path
+                    .segments
+                    .into_iter()
+                    .next_back()
+                    .expect(RETURN_TYPE_ERROR_MSG)
+                    .arguments
+                {
+                    PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                        args, ..
+                    }) => {
                         let mut args = args.into_iter();
                         (args.next(), args.next())
-                    } else {
+                    }
+                    _ => {
                         panic!("{}", RETURN_TYPE_ERROR_MSG)
-                    };
+                    }
+                };
 
                 if element_error_type != err_type {
                     panic!("{}", RETURN_TYPE_ERROR_MSG)
                 }
 
-                if let (
-                    Some(GenericArgument::Type(node_type)),
-                    Some(GenericArgument::Type(error_type)),
-                ) = (node_type, err_type)
-                {
-                    (node_type, error_type)
-                } else {
-                    panic!("{}", RETURN_TYPE_ERROR_MSG)
+                match (node_type, err_type) {
+                    (
+                        Some(GenericArgument::Type(node_type)),
+                        Some(GenericArgument::Type(error_type)),
+                    ) => (node_type, error_type),
+                    _ => {
+                        panic!("{}", RETURN_TYPE_ERROR_MSG)
+                    }
                 }
             }
             _ => panic!("{}", RETURN_TYPE_ERROR_MSG),

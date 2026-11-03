@@ -6,7 +6,7 @@ use std::{
 
 use async_context::with_async_context;
 
-use crate::{hook::Hook, Element};
+use crate::{Element, hook::Hook};
 
 /// Provides a value to all components below it, which can read it with [use_context].
 /// ```

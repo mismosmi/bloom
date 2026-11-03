@@ -33,15 +33,15 @@ where
             let index = hook.memo_index;
             hook.memo_index += 1;
 
-            if let Some((old_hash, value)) = hook.memos.get(index) {
-                if old_hash == &new_hash {
-                    let value: Arc<V> = value
-                        .clone()
-                        .downcast()
-                        .expect("Invalid Hook Call: Type mismatch");
+            if let Some((old_hash, value)) = hook.memos.get(index)
+                && old_hash == &new_hash
+            {
+                let value: Arc<V> = value
+                    .clone()
+                    .downcast()
+                    .expect("Invalid Hook Call: Type mismatch");
 
-                    return value;
-                }
+                return value;
             }
 
             let value = Arc::new(generate(args));

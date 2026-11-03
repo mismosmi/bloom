@@ -3,9 +3,9 @@ use std::{fmt::Debug, sync::Arc};
 use bloom_core::Element;
 
 use crate::{
+    HtmlElement,
     comment::{HtmlComment, HtmlCommentBuilder},
     element::HtmlElementBuilder,
-    HtmlElement,
 };
 
 /// The Node-type to use bloom in Browser-Environments.

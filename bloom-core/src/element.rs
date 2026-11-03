@@ -1,8 +1,8 @@
 use std::{any::Any, hash::Hash, sync::Arc};
 
 use crate::{
-    component::{AnyComponent, ComponentDiff},
     Key,
+    component::{AnyComponent, ComponentDiff},
 };
 
 /// The element type is returned from component render functions.

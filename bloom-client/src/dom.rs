@@ -2,8 +2,8 @@ use std::{
     collections::HashMap,
     future::poll_fn,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Weak,
+        atomic::{AtomicBool, Ordering},
     },
     task::Poll,
 };
@@ -13,8 +13,9 @@ use bloom_html::HtmlNode;
 use futures_util::Future;
 use weak_table::PtrWeakKeyHashMap;
 use web_sys::{
-    wasm_bindgen::{closure::Closure, JsCast},
-    window, Comment, Element, Node, Text,
+    Comment, Element, Node, Text,
+    wasm_bindgen::{JsCast, closure::Closure},
+    window,
 };
 
 fn document() -> web_sys::Document {
