@@ -1,0 +1,19 @@
+[package]
+name = "bloom-gtk"
+version = "0.1.0"
+edition = "2021"
+authors = ["Michel Smola <dev@michelsmola.de>"]
+description = "Native GTK4 rendering for bloom-core"
+license = "MIT"
+repository = "https://github.com/mismosmi/bloom/tree/main/bloom-gtk"
+
+[dependencies]
+bloom-core = { version = "0.1.2", path = "../bloom-core" }
+futures-util = "0.3.34"
+gtk = { package = "gtk4", version = "0.11" }
+weak-table = "0.4.0"
+
+[dev-dependencies]
+async-trait = "0.1.92"
+bloom-rsx = { path = "../bloom-rsx" }
+futures-channel = "0.3.34"

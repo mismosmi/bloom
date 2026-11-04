@@ -1,0 +1,10 @@
+[package]
+name = "bloom-gtk-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+bloom-core = { path = "../bloom-core" }
+bloom-gtk = { path = "../bloom-gtk" }
+bloom-rsx = { path = "../bloom-rsx" }
