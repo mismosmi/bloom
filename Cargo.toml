@@ -9,6 +9,7 @@ members = [
     "bloom-server-example",
     "bloom-rsx",
     "bloom-macro",
+    "bloom-tui",
 ]
 resolver = "3"
 

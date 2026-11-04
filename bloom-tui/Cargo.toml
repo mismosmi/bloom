@@ -1,0 +1,28 @@
+[package]
+name = "bloom-tui"
+version = "0.1.0"
+edition = "2021"
+authors = ["Michel Smola <dev@michelsmola.de>"]
+license = "MIT"
+description = "Terminal UI rendering for bloom-core"
+repository = "https://github.com/mismosmi/bloom/tree/main/bloom-tui"
+
+[dependencies]
+bloom-core = { version = "0.1.2", path = "../bloom-core" }
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm_0_29", "underline-color"] }
+crossterm = { version = "0.29.0", features = ["event-stream"] }
+taffy = "0.15.1"
+unicode-segmentation = "1.13.3"
+unicode-width = "0.2.2"
+futures-util = "0.3.34"
+async-channel = "2.5.0"
+futures-executor = "0.3.34"
+tokio = { version = "1.54.1", features = ["rt"], optional = true }
+
+[features]
+tokio = ["dep:tokio"]
+
+[dev-dependencies]
+async-trait = "0.1.92"
+bloom-rsx = { path = "../bloom-rsx" }
+futures-executor = { version = "0.3.34", features = ["thread-pool"] }

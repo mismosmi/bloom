@@ -12,6 +12,7 @@ It is split into the following packages:
 * [bloom-html](./bloom-html/README.md) provides node definitions for working with HTML rendering targets.
 * [bloom-client](./bloom-client/README.md) is a reference implementation for using bloom on web-clients using web assembly.
 * [bloom-ssr](./bloom-ssr/README.md) is a reference implementation for server-side rendering, both to static strings and as streaming responses.
+* [bloom-tui](./bloom-tui/README.md) renders bloom components in the terminal, using taffy for flexbox layout and ratatui for diffed terminal output.
 * [bloom-rsx](./bloom-rsx/README.md) provides the procedural `rsx!` macro used to define views with bloom.
 * [bloom-macro](./bloom-macro/README.md) provides some additional macros to simplify defining components.
 * [async-context](./async-context/README.md) allows providing context to async rust functions building the foundation of bloom's runtime hooks and allowing bloom-components (in contrast to react components) to be truly async.
