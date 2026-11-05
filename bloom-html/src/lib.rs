@@ -74,10 +74,10 @@
 //! #     type Node = HtmlNode;
 //! #     type Error = ();
 //! #     async fn render(self: Arc<Self>) -> Result<Element<HtmlNode, ()>, ()> {
-//! let my_state = use_state(|| 0);
+//! let my_state = use_state(|| 0.into());
 //!
 //! Ok(rsx!(
-//!     <button on_click={move |_| my_state.update(|value| *value + 1)}>"Increment"</button>
+//!     <button on_click={move |_| my_state.update(|value| (*value + 1).into())}>"Increment"</button>
 //! ))
 //! #     }
 //! # }

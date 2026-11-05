@@ -19,6 +19,7 @@ use std::{
 ///
 /// ```
 /// use bloom_core::{Identify, use_memo};
+/// use std::sync::Arc;
 ///
 /// #[derive(Identify)]
 /// struct Inputs {
@@ -27,7 +28,7 @@ use std::{
 /// }
 ///
 /// let value = use_memo(Inputs { label: "hi".into(), count: 2 }, |inputs| {
-///     inputs.label.repeat(inputs.count)
+///     Arc::new(inputs.label.repeat(inputs.count))
 /// });
 /// assert_eq!(&*value, "hihi");
 /// ```

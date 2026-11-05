@@ -30,7 +30,7 @@ impl StateUpdate {
 /// ```
 /// use bloom_core::use_state;
 ///
-/// let my_state = use_state(|| 0);
+/// let my_state = use_state(|| 0.into());
 ///
 /// assert_eq!(0, *my_state);
 /// ```
@@ -39,10 +39,11 @@ impl StateUpdate {
 /// Call it from a callback, such as an event handler:
 /// ```
 /// use bloom_core::{component, use_state, Element};
+/// use std::sync::Arc;
 /// #[component]
 /// fn Counter() -> Result<Element<String, ()>, ()> {
-///     let count = use_state(|| 0);
-///     let increment = move || count.update(|value| *value + 1);
+///     let count = use_state(|| Arc::new(0));
+///     let increment = move || count.update(|value| (*value + 1).into());
 ///     // Pass `increment` to the renderer's event handler.
 ///     Ok("Increment".into())
 /// }
@@ -99,10 +100,9 @@ where
         }
     }
 
-    pub fn update<C, R>(&self, callback: C)
+    pub fn update<C>(&self, callback: C)
     where
-        R: Into<Arc<T>>,
-        C: FnOnce(Arc<T>) -> R + Send + Sync + 'static,
+        C: FnOnce(Arc<T>) -> Arc<T> + Send + Sync + 'static,
     {
         let current_value = self.value.clone();
         self.updater
@@ -111,7 +111,7 @@ where
                     let typed_value = value
                         .map(|value| value.downcast().expect("Invalid state hook"))
                         .unwrap_or(current_value);
-                    callback(typed_value).into()
+                    callback(typed_value)
                 }),
                 index: self.index,
             })
@@ -156,11 +156,10 @@ where
 /// Analog to react's useState API.
 /// Pass a callback to build the initial state.
 /// The returned State-object can be used to read and update the state.
-pub fn use_state<T, R, D>(default: D) -> State<T>
+pub fn use_state<T, D>(default: D) -> State<T>
 where
     T: Send + Sync + 'static,
-    R: Into<Arc<T>>,
-    D: FnOnce() -> R,
+    D: FnOnce() -> Arc<T>,
 {
     with_async_context_mut(|hook: Option<&mut Hook>| {
         if let Some(hook) = hook {
@@ -181,7 +180,7 @@ where
                 }
             } else {
                 // Store the initial value so later renders don't build it again
-                let value = default().into();
+                let value = default();
                 hook.state.insert(index, value.clone());
                 State {
                     value,

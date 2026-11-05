@@ -226,11 +226,11 @@ async fn update_and_remove_suspended_boundary() {
                 async fn render(
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                    let step = use_state(|| 0i32);
+                    let step = use_state(|| 0i32.into());
 
                     if *step < 2 {
                         let step = step.clone();
-                        tokio::spawn(async move { step.update(|step| *step + 1) });
+                        tokio::spawn(async move { step.update(|step| (*step + 1).into()) });
                     }
 
                     if *step == 2 {
@@ -292,10 +292,10 @@ async fn reorder_keyed_children_of_suspended_boundary() {
                 async fn render(
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                    let step = use_state(|| 0i32);
+                    let step = use_state(|| 0i32.into());
                     if *step == 0 {
                         let step = step.clone();
-                        tokio::spawn(async move { step.update(|step| *step + 1) });
+                        tokio::spawn(async move { step.update(|step| (*step + 1).into()) });
                     }
                     let ids = if *step == 0 { [1, 2] } else { [2, 1] };
                     Ok(Element::Fragment(

@@ -276,10 +276,10 @@ impl Component for Steps {
     type Node = MockNode;
 
     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-        let step = use_state(|| 0usize);
+        let step = use_state(|| 0usize.into());
         if *step + 1 < self.steps.len() {
             let step = step.clone();
-            tokio::spawn(async move { step.update(|step| *step + 1) });
+            tokio::spawn(async move { step.update(|step| (*step + 1).into()) });
         }
         Ok((self.render)(&self.steps[*step]))
     }

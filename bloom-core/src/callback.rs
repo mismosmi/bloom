@@ -41,7 +41,7 @@ where
     R: 'static,
 {
     use_memo(Callback { captures, cb }, |Callback { captures, cb }| {
-        move |args| cb(&captures, args)
+        Arc::new(move |args| cb(&captures, args))
     })
 }
 

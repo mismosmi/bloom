@@ -80,7 +80,9 @@ fn derived_identity_uses_each_fields_identity() {
     assert_eq!(first.id(), same.id());
     assert_ne!(first.id(), changed_revision.id());
     assert_ne!(first.id(), changed_count.id());
-    let value = use_memo(first, |inputs| inputs.revision.payload.repeat(inputs.count));
+    let value = use_memo(first, |inputs| {
+        Arc::new(inputs.revision.payload.repeat(inputs.count))
+    });
     assert_eq!(&*value, "firstfirst");
 }
 

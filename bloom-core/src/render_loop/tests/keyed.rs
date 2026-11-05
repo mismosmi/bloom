@@ -177,7 +177,7 @@ async fn keyed_components_keep_state() {
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
                     // Shows the wrong id if the state ends up in another item
-                    let first_id = use_state(|| self.id);
+                    let first_id = use_state(|| self.id.into());
                     Ok(Element::Node(MockNode(*first_id), vec![]))
                 }
             }

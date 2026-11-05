@@ -7,7 +7,7 @@ use crate::{Identify, hook::Hook};
 pub async fn use_async_memo<A, R, F>(args: A, generate: fn(A) -> F) -> Arc<R>
 where
     A: Identify,
-    F: Future<Output = R>,
+    F: Future<Output = Arc<R>>,
     R: Send + Sync + 'static,
 {
     let new_id = args.id();
@@ -30,7 +30,7 @@ where
 
             old_value
         } else {
-            let new_value = Arc::new(generate(args).await);
+            let new_value = generate(args).await;
             with_async_context_mut(|hook: Option<&mut Hook>| {
                 let hook = hook.expect("Invariant Violation: use_async_memo was called in a component cycle but not awaited in the same component");
 
@@ -43,6 +43,6 @@ where
             })
         }
     } else {
-        Arc::new(generate(args).await)
+        generate(args).await
     }
 }
