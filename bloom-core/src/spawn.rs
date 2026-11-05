@@ -2,7 +2,7 @@ use async_context::with_async_context;
 use futures_executor::block_on;
 use futures_util::task::{FutureObj, Spawn, SpawnError};
 
-use crate::hook::Hook;
+use crate::{Identify, hook::Hook};
 
 trait CloneSpawn: Spawn + Send + Sync {
     fn clone_box(&self) -> Box<dyn CloneSpawn>;
@@ -54,7 +54,7 @@ impl Spawn for Spawner {
     }
 }
 
-pub fn use_spawn() -> Spawner {
+pub fn use_spawner() -> Spawner {
     with_async_context(|hook: Option<&Hook>| {
         if let Some(hook) = hook {
             hook.spawner.clone()
@@ -62,4 +62,10 @@ pub fn use_spawn() -> Spawner {
             Spawner::mock()
         }
     })
+}
+
+impl Identify for Spawner {
+    fn id(&self) -> u64 {
+        Box::as_ptr(&self.0).addr() as u64
+    }
 }

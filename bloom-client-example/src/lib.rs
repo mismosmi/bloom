@@ -31,14 +31,14 @@ fn ExampleApp() -> Result<Element<HtmlNode, ()>, ()> {
         console::log_2(&"hello world div".into(), &node.get().unwrap());
     });
 
-    let counter = use_state(|| 0i32);
+    let counter = use_state(|| 0i32.into());
     Ok(rsx!(
         <div>
             <div ref=hello_world_ref>
                 "Hello, World!"
             </div>
             <div>{counter.to_string()}</div>
-            <button on_click=move |_| counter.update(|count| *count + 1)>
+            <button on_click=move |_| counter.update(|count| (*count + 1).into())>
                 "Increase"
             </button>
             <MacroComponent label="Hello, Macro!" />

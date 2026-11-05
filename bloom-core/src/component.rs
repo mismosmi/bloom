@@ -33,7 +33,7 @@ pub trait Component: PartialEq<Self> + Send + Sync {
     ///     type Error = ();
     ///
     ///     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-    ///         let count = use_state(|| self.initial_count);
+    ///         let count = use_state(|| self.initial_count.into());
     ///
     ///         Ok(count.into())
     ///     }

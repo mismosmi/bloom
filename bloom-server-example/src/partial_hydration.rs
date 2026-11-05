@@ -14,11 +14,11 @@ fn Island(
     name: String,
     context_id: String,
 ) -> Result<Element<HtmlNode, anyhow::Error>, anyhow::Error> {
-    let counter = use_state(|| 0i32);
+    let counter = use_state(|| 0i32.into());
     Ok(rsx!(
         <div data-bloom-partial={name.clone()} data-bloom-ctx={context_id.clone()}>
             {format!("{}: {}", name, *counter)}
-            <button on_click=move |_| counter.update(|count| *count + 1)>
+            <button on_click=move |_| counter.update(|count| (*count + 1).into())>
                 "Increase"
             </button>
         </div>
