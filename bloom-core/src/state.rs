@@ -3,7 +3,7 @@ use std::{any::Any, collections::HashMap, hash::Hash, ops::Deref, sync::Arc};
 use async_channel::{Sender, bounded};
 use async_context::with_async_context_mut;
 
-use crate::{Element, hook::Hook};
+use crate::{Element, Identify, hook::Hook};
 
 type StateUpdateFn = Box<
     dyn FnOnce(Option<Arc<dyn Any + Send + Sync>>) -> Arc<dyn Any + Send + Sync> + Send + 'static,
@@ -85,11 +85,14 @@ impl<T> State<T>
 where
     T: Send + Sync + 'static,
 {
-    fn mock(value: T) -> Self {
+    fn mock<I>(value: I) -> Self
+    where
+        I: Into<Arc<T>>,
+    {
         let (mock_signal, _) = bounded(1);
         let (mock_updater, _) = bounded(1);
         State {
-            value: Arc::new(value),
+            value: value.into(),
             signal: mock_signal,
             updater: mock_updater,
             index: 0,
@@ -115,15 +118,49 @@ where
             .expect("Failed to send update");
         let _ = self.signal.try_send(());
     }
+
+    pub fn set<I>(&self, value: I)
+    where
+        I: Into<Arc<T>>,
+    {
+        let typed_value = value.into();
+        self.updater
+            .try_send(StateUpdate {
+                update: Box::new(move |_| typed_value),
+                index: self.index,
+            })
+            .expect("Failed to send new state");
+        let _ = self.signal.try_send(());
+    }
+}
+
+impl<T> Identify for State<T>
+where
+    T: Identify,
+{
+    fn id(&self) -> u64 {
+        let value: &T = self;
+        value.id()
+    }
+}
+
+impl<T> Into<Arc<T>> for State<T>
+where
+    T: Identify,
+{
+    fn into(self) -> Arc<T> {
+        self.value
+    }
 }
 
 /// Analog to react's useState API.
 /// Pass a callback to build the initial state.
 /// The returned State-object can be used to read and update the state.
-pub fn use_state<T, D>(default: D) -> State<T>
+pub fn use_state<T, R, D>(default: D) -> State<T>
 where
     T: Send + Sync + 'static,
-    D: FnOnce() -> T,
+    R: Into<Arc<T>>,
+    D: FnOnce() -> R,
 {
     with_async_context_mut(|hook: Option<&mut Hook>| {
         if let Some(hook) = hook {
@@ -144,7 +181,7 @@ where
                 }
             } else {
                 // Store the initial value so later renders don't build it again
-                let value = Arc::new(default());
+                let value = default().into();
                 hook.state.insert(index, value.clone());
                 State {
                     value,
