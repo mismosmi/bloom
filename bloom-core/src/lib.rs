@@ -58,7 +58,7 @@ pub use context::{_get_context, Provider, ProviderBuilder, use_context};
 pub use effect::use_effect;
 pub use element::{Element, keyed};
 pub use fragment::{Fragment, FragmentBuilder};
-pub use identify::Identify;
+pub use identify::{ByHash, Identify};
 pub use key::Key;
 pub use memo::use_memo;
 pub use object_ref::{use_ref, use_ref_with_default};
