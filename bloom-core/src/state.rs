@@ -1,13 +1,14 @@
-use std::{any::Any, collections::HashMap, hash::Hash, ops::Deref, sync::Arc};
+use crate::{MaybeSend, MaybeSync};
+use std::{collections::HashMap, hash::Hash, ops::Deref, sync::Arc};
 
 use async_channel::{Sender, bounded};
 use async_context::with_async_context_mut;
 
 use crate::{Element, Identify, hook::Hook};
 
-type StateUpdateFn = Box<
-    dyn FnOnce(Option<Arc<dyn Any + Send + Sync>>) -> Arc<dyn Any + Send + Sync> + Send + 'static,
->;
+trait UpdateFn: FnOnce(Option<crate::SharedValue>) -> crate::SharedValue + MaybeSend {}
+impl<T: FnOnce(Option<crate::SharedValue>) -> crate::SharedValue + MaybeSend> UpdateFn for T {}
+type StateUpdateFn = Box<dyn UpdateFn>;
 
 pub(crate) struct StateUpdate {
     update: StateUpdateFn,
@@ -15,7 +16,7 @@ pub(crate) struct StateUpdate {
 }
 
 impl StateUpdate {
-    pub(crate) fn apply(self, state: &mut HashMap<u16, Arc<dyn Any + Send + Sync>>) {
+    pub(crate) fn apply(self, state: &mut HashMap<u16, crate::platform::SharedValue>) {
         let this_state = state.get_mut(&self.index).cloned();
 
         let update = self.update;
@@ -84,7 +85,7 @@ where
 
 impl<T> State<T>
 where
-    T: Send + Sync + 'static,
+    T: MaybeSend + MaybeSync + 'static,
 {
     fn mock<I>(value: I) -> Self
     where
@@ -102,7 +103,7 @@ where
 
     pub fn update<C>(&self, callback: C)
     where
-        C: FnOnce(Arc<T>) -> Arc<T> + Send + Sync + 'static,
+        C: FnOnce(Arc<T>) -> Arc<T> + MaybeSend + MaybeSync + 'static,
     {
         let current_value = self.value.clone();
         self.updater
@@ -111,7 +112,7 @@ where
                     let typed_value = value
                         .map(|value| value.downcast().expect("Invalid state hook"))
                         .unwrap_or(current_value);
-                    callback(typed_value)
+                    callback(typed_value).into()
                 }),
                 index: self.index,
             })
@@ -126,7 +127,7 @@ where
         let typed_value = value.into();
         self.updater
             .try_send(StateUpdate {
-                update: Box::new(move |_| typed_value),
+                update: Box::new(move |_| typed_value.into()),
                 index: self.index,
             })
             .expect("Failed to send new state");
@@ -158,7 +159,7 @@ where
 /// The returned State-object can be used to read and update the state.
 pub fn use_state<T, D>(default: D) -> State<T>
 where
-    T: Send + Sync + 'static,
+    T: MaybeSend + MaybeSync + 'static,
     D: FnOnce() -> Arc<T>,
 {
     with_async_context_mut(|hook: Option<&mut Hook>| {
@@ -181,7 +182,7 @@ where
             } else {
                 // Store the initial value so later renders don't build it again
                 let value = default();
-                hook.state.insert(index, value.clone());
+                hook.state.insert(index, value.clone().into());
                 State {
                     value,
                     signal,

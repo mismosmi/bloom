@@ -1,3 +1,4 @@
+use crate::{MaybeSend, MaybeSync};
 use async_context::with_async_context_mut;
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ use crate::{hook::Hook, identify::Identify};
 pub fn use_memo<A, V>(args: A, generate: fn(A) -> Arc<V>) -> Arc<V>
 where
     A: Identify,
-    V: Send + Sync + 'static,
+    V: MaybeSend + MaybeSync + 'static,
 {
     let new_id = args.id();
 
@@ -42,9 +43,9 @@ where
 
             let value = generate(args);
             if index < hook.memos.len() {
-                hook.memos[index] = (new_id, value.clone());
+                hook.memos[index] = (new_id, value.clone().into());
             } else {
-                hook.memos.push((new_id, value.clone()));
+                hook.memos.push((new_id, value.clone().into()));
             }
             value
         } else {

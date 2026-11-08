@@ -1,7 +1,6 @@
 use futures_util::task::noop_waker;
 use std::{
     future::Future,
-    pin::Pin,
     task::{Context, Poll},
 };
 
@@ -44,12 +43,12 @@ where
 }
 
 pub(crate) enum RunOrSuspendResult<T> {
-    Suspend(Pin<Box<dyn Future<Output = T> + Send>>),
+    Suspend(crate::platform::BoxFuture<'static, T>),
     Done(T),
 }
 
 pub(crate) fn run_or_suspend<T>(
-    future: Pin<Box<dyn Future<Output = T> + Send>>,
+    future: crate::platform::BoxFuture<'static, T>,
 ) -> RunOrSuspendResult<T>
 where
     T: 'static,

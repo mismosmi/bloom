@@ -35,7 +35,8 @@
 //!
 //! # #[derive(PartialEq)]
 //! # struct MyComponent;
-//! # #[async_trait]
+//! # #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+//! # #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
 //! # impl Component for MyComponent {
 //! #     type Node = HtmlNode;
 //! #     type Error = ();
@@ -69,7 +70,8 @@
 //! # use bloom_rsx::rsx;
 //! # #[derive(PartialEq)]
 //! # struct Counter;
-//! # #[async_trait]
+//! # #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+//! # #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
 //! # impl Component for Counter {
 //! #     type Node = HtmlNode;
 //! #     type Error = ();

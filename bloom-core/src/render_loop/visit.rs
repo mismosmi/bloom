@@ -1,6 +1,7 @@
+use crate::{MaybeSend, MaybeSync};
 use std::{mem, sync::Arc};
 
-use futures_util::{future, task::SpawnExt};
+use futures_util::future;
 
 use crate::{Element, commit::Changes, component::ComponentDiff, render_context::RenderContext};
 
@@ -21,8 +22,8 @@ pub(super) fn visit<'a, N, E>(
     pass: &'a Pass,
 ) -> Visit<'a, N, E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
 {
     Box::pin(async move {
         let mut ctx = ctx;
@@ -47,8 +48,8 @@ pub(super) async fn visit_in_task<N, E>(
     pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
 {
     let mut subtree = mem::replace(node, TreeNode::Fragment(Vec::new()));
     let task_pass = pass.clone();
@@ -83,8 +84,8 @@ pub(super) async fn visit_component<N, E>(
     pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
 {
     let TreeNode::Component(component) = node else {
         unreachable!("Only components are visited as components")
@@ -118,8 +119,8 @@ pub(super) async fn create<N, E>(
     pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
 {
     let mut changes = Changes::default();
     match node {
@@ -208,8 +209,8 @@ pub(super) async fn reload<N, E>(
     pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
 {
     match node {
         TreeNode::Component(_) => visit_component(node, ComponentWork::Reload, ctx, pass).await,
@@ -290,8 +291,8 @@ pub(super) async fn update<N, E>(
     pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
 {
     // A changed key means a different element, so it is replaced instead of
     // updated in place. Removing the old element runs its cleanups.
@@ -364,8 +365,8 @@ pub(super) async fn settle<N, E>(
     pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
 {
     let pending = !suspense.is_revealed() && suspense.children.iter().any(TreeNode::is_pending);
     let mut changes = Changes::default();
@@ -448,8 +449,8 @@ pub(super) async fn replace_node<N, E>(
     pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
 {
     let old_node = mem::replace(node, TreeNode::from(element));
     let mut changes = visit(node, Work::Create, ctx.clone(), pass).await?;

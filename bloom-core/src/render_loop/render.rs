@@ -1,6 +1,5 @@
+use crate::{MaybeSend, MaybeSync};
 use std::sync::Arc;
-
-use futures_util::task::SpawnExt;
 
 use crate::{
     commit::Changes,
@@ -41,8 +40,8 @@ where
         pass: &Pass,
     ) -> Result<Changes<N>, E>
     where
-        N: Send + Sync + 'static,
-        E: Send + 'static,
+        N: MaybeSend + MaybeSync + 'static,
+        E: MaybeSend + 'static,
     {
         if let Some(render_result) = self.render_result.take() {
             match run_or_suspend(render_result) {
@@ -69,8 +68,8 @@ where
         pass: &Pass,
     ) -> Result<Changes<N>, E>
     where
-        N: Send + Sync + 'static,
-        E: Send + 'static,
+        N: MaybeSend + MaybeSync + 'static,
+        E: MaybeSend + 'static,
     {
         while let Ok(state_update) = self.updates.try_recv() {
             state_update.apply(&mut self.state);
@@ -117,8 +116,8 @@ where
         pass: &Pass,
     ) -> Result<Changes<N>, E>
     where
-        N: Send + Sync + 'static,
-        E: Send + 'static,
+        N: MaybeSend + MaybeSync + 'static,
+        E: MaybeSend + 'static,
     {
         let mut changes = Changes::default();
         // Effects of a detached component only run once its nodes are shown

@@ -1,4 +1,4 @@
-use std::{any::Any, hash::Hash, sync::Arc};
+use std::{hash::Hash, sync::Arc};
 
 use crate::{
     Key,
@@ -16,10 +16,10 @@ pub enum Element<Node, Error>
 where
     Node: From<String>,
 {
-    Component(Arc<dyn AnyComponent<Node = Node, Error = Error> + Send + Sync + 'static>),
+    Component(Arc<dyn AnyComponent<Node = Node, Error = Error> + 'static>),
     Node(Node, Vec<Element<Node, Error>>),
     Fragment(Vec<Element<Node, Error>>),
-    Provider(Arc<dyn Any + Send + Sync>, Vec<Element<Node, Error>>),
+    Provider(crate::platform::SharedValue, Vec<Element<Node, Error>>),
     /// Identifies the element among its siblings, see [keyed].
     Keyed(Key, Box<Element<Node, Error>>),
     Suspense(Box<Element<Node, Error>>, Vec<Element<Node, Error>>),
@@ -105,9 +105,7 @@ where
             (Element::Component(a), Element::Component(b)) => a.compare(b) == ComponentDiff::Equal,
             (Element::Node(a, ac), Element::Node(b, bc)) => a == b && ac == bc,
             (Element::Fragment(ac), Element::Fragment(bc)) => ac == bc,
-            (Element::Provider(av, ac), Element::Provider(bv, bc)) => {
-                Arc::ptr_eq(av, bv) && ac == bc
-            }
+            (Element::Provider(av, ac), Element::Provider(bv, bc)) => av.ptr_eq(bv) && ac == bc,
             (Element::Keyed(ak, a), Element::Keyed(bk, b)) => ak == bk && a == b,
             (Element::Suspense(af, ac), Element::Suspense(bf, bc)) => af == bf && ac == bc,
             _ => false,

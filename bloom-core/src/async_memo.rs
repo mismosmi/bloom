@@ -1,3 +1,4 @@
+use crate::{MaybeSend, MaybeSync};
 use std::sync::Arc;
 
 use async_context::with_async_context_mut;
@@ -8,7 +9,7 @@ pub async fn use_async_memo<A, R, F>(args: A, generate: fn(A) -> F) -> Arc<R>
 where
     A: Identify,
     F: Future<Output = Arc<R>>,
-    R: Send + Sync + 'static,
+    R: MaybeSend + MaybeSync + 'static,
 {
     let new_id = args.id();
 
@@ -35,9 +36,9 @@ where
                 let hook = hook.expect("Invariant Violation: use_async_memo was called in a component cycle but not awaited in the same component");
 
                 if index < hook.memos.len() {
-                    hook.memos[index] = (new_id, new_value.clone());
+                    hook.memos[index] = (new_id, new_value.clone().into());
                 } else {
-                    hook.memos.push((new_id, new_value.clone()));
+                    hook.memos.push((new_id, new_value.clone().into()));
                 }
                 new_value
             })

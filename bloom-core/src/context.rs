@@ -1,8 +1,5 @@
-use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-    sync::Arc,
-};
+use crate::{MaybeSend, MaybeSync};
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use async_context::with_async_context;
 
@@ -33,7 +30,7 @@ pub struct Provider<N, E>
 where
     N: From<String>,
 {
-    value: Arc<dyn Any + Send + Sync>,
+    value: crate::platform::SharedValue,
     children: Vec<Element<N, E>>,
 }
 
@@ -61,12 +58,12 @@ impl<N, E> ProviderBuilder<N, E, ()>
 where
     N: From<String>,
 {
-    pub fn value<T>(self, value: T) -> ProviderBuilder<N, E, Arc<dyn Any + Send + Sync>>
+    pub fn value<T>(self, value: T) -> ProviderBuilder<N, E, crate::platform::SharedValue>
     where
-        T: Send + Sync + 'static,
+        T: MaybeSend + MaybeSync + 'static,
     {
         ProviderBuilder {
-            value: Arc::new(value),
+            value: Arc::new(value).into(),
             children: self.children,
         }
     }
@@ -82,7 +79,7 @@ where
     }
 }
 
-impl<N, E> ProviderBuilder<N, E, Arc<dyn Any + Send + Sync>>
+impl<N, E> ProviderBuilder<N, E, crate::platform::SharedValue>
 where
     N: From<String>,
 {
@@ -103,14 +100,14 @@ where
     }
 }
 
-pub(crate) type ContextMap = Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>;
+pub(crate) type ContextMap = Arc<HashMap<TypeId, crate::platform::SharedValue>>;
 
 /// Read the value of the closest [Provider] above the component.
 /// All consumers share the provided value, it is never cloned.
 /// Without a provider, a default value is returned.
 pub fn use_context<T>() -> Arc<T>
 where
-    T: Default + Send + Sync + 'static,
+    T: Default + MaybeSend + MaybeSync + 'static,
 {
     with_async_context(|hook: Option<&Hook>| {
         if let Some(hook) = hook {
