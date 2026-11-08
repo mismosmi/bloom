@@ -10,10 +10,12 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::{HtmlElement, console, wasm_bindgen::JsCast, window};
 
 mod dom;
+mod error_to_console;
 mod interned_str;
 mod partial;
 mod spawner;
 
+pub use error_to_console::{ErrorToConsole, error_to_console};
 pub use partial::hydrate_partial;
 
 pub fn get_element_by_id(id: &str) -> Option<HtmlElement> {

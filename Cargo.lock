@@ -131,6 +131,7 @@ dependencies = [
  "bloom-html",
  "bloom-rsx",
  "futures-util",
+ "js-sys",
  "reqwest",
  "wasm-bindgen",
  "wasm-bindgen-futures",
