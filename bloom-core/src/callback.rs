@@ -1,4 +1,5 @@
 use crate::{Identify, use_memo};
+use crate::{MaybeSend, MaybeSync};
 use std::sync::Arc;
 
 struct Callback<C, A, R>
@@ -34,14 +35,14 @@ where
 pub fn use_callback<C, A, R>(
     captures: C,
     cb: fn(&C, A) -> R,
-) -> Arc<impl Fn(A) -> R + Send + Sync + 'static>
+) -> Arc<impl Fn(A) -> R + MaybeSend + MaybeSync + 'static>
 where
-    C: Identify + Send + Sync + 'static,
+    C: Identify + MaybeSend + MaybeSync + 'static,
     A: 'static,
     R: 'static,
 {
     use_memo(Callback { captures, cb }, |Callback { captures, cb }| {
-        move |args| cb(&captures, args)
+        Arc::new(move |args| cb(&captures, args))
     })
 }
 

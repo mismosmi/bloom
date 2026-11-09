@@ -1,3 +1,4 @@
+use crate::{MaybeSend, MaybeSync};
 use std::{any::Any, sync::Arc};
 
 use crate::Element;
@@ -5,8 +6,9 @@ use async_trait::async_trait;
 
 /// The component trait is the core of the bloom library.
 /// It represents the basic unit of a bloom application.
-#[async_trait]
-pub trait Component: PartialEq<Self> + Send + Sync {
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+pub trait Component: PartialEq<Self> + MaybeSend + MaybeSync {
     /// The node type is a representation of the native UI elements of the target renderer.
     type Node: From<String>;
     /// The error type for the entire application.
@@ -27,13 +29,14 @@ pub trait Component: PartialEq<Self> + Send + Sync {
     ///     initial_count: i32,
     /// }
     ///
-    /// #[async_trait]
+    /// #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    /// #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
     /// impl Component for Counter {
     ///     type Node = String;
     ///     type Error = ();
     ///
     ///     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-    ///         let count = use_state(|| self.initial_count);
+    ///         let count = use_state(|| self.initial_count.into());
     ///
     ///         Ok(count.into())
     ///     }
@@ -64,8 +67,9 @@ pub enum ComponentDiff {
     Equal,
 }
 
-#[async_trait]
-pub trait AnyComponent {
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+pub trait AnyComponent: MaybeSend + MaybeSync {
     type Node: From<String>;
     type Error;
 
@@ -74,7 +78,8 @@ pub trait AnyComponent {
     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error>;
 }
 
-#[async_trait]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
 impl<C> AnyComponent for C
 where
     C: Component + 'static,

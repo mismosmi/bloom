@@ -1,4 +1,4 @@
-use std::{any::Any, sync::Arc};
+use std::sync::Arc;
 
 use crate::context::ContextMap;
 
@@ -66,9 +66,9 @@ impl<N> RenderContext<N> {
         }
     }
 
-    pub(crate) fn with_context(&self, value: Arc<dyn Any + Send + Sync>) -> Self {
+    pub(crate) fn with_context(&self, value: crate::platform::SharedValue) -> Self {
         let mut new_context = self.context.as_ref().clone();
-        new_context.insert((*value).type_id(), value);
+        new_context.insert(value.type_id(), value);
         Self {
             parent: self.parent.clone(),
             sibling: self.sibling.clone(),
@@ -98,10 +98,10 @@ impl<N> RenderContext<N> {
     pub(crate) fn with_sibling_and_context(
         &self,
         sibling: Option<Arc<N>>,
-        value: Arc<dyn Any + Send + Sync>,
+        value: crate::platform::SharedValue,
     ) -> Self {
         let mut new_context = self.context.as_ref().clone();
-        new_context.insert((*value).type_id(), value);
+        new_context.insert(value.type_id(), value);
         Self {
             parent: self.parent.clone(),
             sibling,

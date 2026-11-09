@@ -113,7 +113,8 @@ pub(crate) fn transform_component(
     };
 
     let component_impl = quote! {
-        #[bloom_core::__private::async_trait]
+        #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), bloom_core::__private::async_trait(?Send))]
+        #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), bloom_core::__private::async_trait)]
         impl #impl_gen bloom_core::Component for #name #ty_gen #where_gen {
             type Node = #node_type;
             type Error = #error_type;

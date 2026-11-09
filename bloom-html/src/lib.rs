@@ -35,7 +35,8 @@
 //!
 //! # #[derive(PartialEq)]
 //! # struct MyComponent;
-//! # #[async_trait]
+//! # #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+//! # #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
 //! # impl Component for MyComponent {
 //! #     type Node = HtmlNode;
 //! #     type Error = ();
@@ -69,15 +70,16 @@
 //! # use bloom_rsx::rsx;
 //! # #[derive(PartialEq)]
 //! # struct Counter;
-//! # #[async_trait]
+//! # #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+//! # #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
 //! # impl Component for Counter {
 //! #     type Node = HtmlNode;
 //! #     type Error = ();
 //! #     async fn render(self: Arc<Self>) -> Result<Element<HtmlNode, ()>, ()> {
-//! let my_state = use_state(|| 0);
+//! let my_state = use_state(|| 0.into());
 //!
 //! Ok(rsx!(
-//!     <button on_click={move |_| my_state.update(|value| *value + 1)}>"Increment"</button>
+//!     <button on_click={move |_| my_state.update(|value| (*value + 1).into())}>"Increment"</button>
 //! ))
 //! #     }
 //! # }
@@ -96,6 +98,7 @@ pub use dom_ref::DomRef;
 pub use element::HtmlElement;
 pub use event::EventHandler;
 pub use node::{HtmlNode, tag};
+pub use tag::form::Form;
 
 /// shortcut for generating text-nodes
 pub fn text<E, T>(text: T) -> Element<HtmlNode, E>

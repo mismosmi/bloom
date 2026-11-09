@@ -1,3 +1,4 @@
+use bloom_core::{MaybeSend, MaybeSync};
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use crate::{DomRef, EventHandler};
@@ -113,7 +114,7 @@ impl<T> HtmlElementBuilder<T> {
     pub fn on<K, C>(mut self, key: K, handler: C) -> Self
     where
         K: Into<String>,
-        C: Fn(web_sys::Event) + Send + Sync + 'static,
+        C: Fn(web_sys::Event) + MaybeSend + MaybeSync + 'static,
     {
         self.callbacks.insert(key.into(), Box::new(handler));
         self

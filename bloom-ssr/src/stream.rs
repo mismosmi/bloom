@@ -1,8 +1,10 @@
+use bloom_core::MaybeSpawn;
+use bloom_core::{MaybeSend, MaybeSync};
 use std::task::Poll;
 
 use bloom_core::{Element, NodeStream, render_stream};
 use bloom_html::HtmlNode;
-use futures_util::{Stream, StreamExt, task::Spawn};
+use futures_util::{Stream, StreamExt};
 
 use crate::serializer::serialize_node_open;
 
@@ -58,8 +60,8 @@ impl<E> StringStream<E> {
 /// natively streaming server-side rendering.
 pub fn render_to_stream<E, S>(element: Element<HtmlNode, E>, spawner: S) -> StringStream<E>
 where
-    E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
+    E: MaybeSend + 'static,
+    S: MaybeSpawn + Clone + MaybeSend + MaybeSync + 'static,
 {
     StringStream::new(render_stream(element, spawner))
 }

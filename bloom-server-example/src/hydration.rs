@@ -15,13 +15,13 @@ impl Component for HydrationPage {
     type Node = HtmlNode;
 
     async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-        let counter = use_state(|| 0i32);
+        let counter = use_state(|| 0i32.into());
         Ok(rsx!(
             <div>
                 "Hello, World!"
                 <div>
                     {counter.to_string()}
-                    <button on_click=move |_| counter.update(|count| *count + 1)>
+                    <button on_click=move |_| counter.update(|count| (*count + 1).into())>
                         "Increase"
                     </button>
                 </div>

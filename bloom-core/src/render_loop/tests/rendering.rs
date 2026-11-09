@@ -56,9 +56,9 @@ async fn with_callback() {
                 async fn render(
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                    let counter = use_state(|| 0i32);
+                    let counter = use_state(|| 0i32.into());
                     if *counter == 0 {
-                        counter.update(|count| *count + 1);
+                        counter.update(|count| (*count + 1).into());
                     }
                     Ok(Element::Node(MockNode(*counter), Vec::new()))
                 }
@@ -111,7 +111,7 @@ async fn state_keeps_initial_value() {
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
                     // The initial value is only built once, later props don't change it
-                    let first_value = use_state(|| self.value);
+                    let first_value = use_state(|| self.value.into());
                     Ok(Element::Node(MockNode(*first_value), Vec::new()))
                 }
             }
@@ -126,9 +126,9 @@ async fn state_keeps_initial_value() {
                 async fn render(
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                    let counter = use_state(|| 0i32);
+                    let counter = use_state(|| 0i32.into());
                     if *counter == 0 {
-                        counter.update(|count| *count + 1);
+                        counter.update(|count| (*count + 1).into());
                     }
                     Ok(Element::Component(Arc::new(Child { value: *counter })))
                 }
@@ -179,11 +179,11 @@ async fn update_order() {
                 async fn render(
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                    let counter = use_state(|| 0i32);
+                    let counter = use_state(|| 0i32.into());
 
                     if *counter == 0 {
                         let counter = counter.clone();
-                        tokio::spawn(async move { counter.update(|count| *count + 1) });
+                        tokio::spawn(async move { counter.update(|count| (*count + 1).into()) });
                     }
 
                     Ok(Element::Node(
@@ -283,11 +283,11 @@ async fn grow_children() {
                 async fn render(
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                    let length = use_state(|| 1i32);
+                    let length = use_state(|| 1i32.into());
 
                     if *length < 3 {
                         let length = length.clone();
-                        tokio::spawn(async move { length.update(|length| *length + 2) });
+                        tokio::spawn(async move { length.update(|length| (*length + 2).into()) });
                     }
 
                     Ok(Element::Node(

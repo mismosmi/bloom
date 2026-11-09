@@ -1,6 +1,8 @@
-/// Event handlers are basically just closures that take a web_sys::Event as an argument.
-/// This type only provides a convenience for implementing the actual render-functions.
+/// An event handler with the target's thread-safety requirements.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub type EventHandler = Box<dyn Fn(web_sys::Event) + Send + Sync + 'static>;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub type EventHandler = Box<dyn Fn(web_sys::Event) + 'static>;
 
 #[cfg(test)]
 mod tests {

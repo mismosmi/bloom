@@ -1,13 +1,14 @@
-use std::{any::Any, collections::HashMap, hash::Hash, ops::Deref, sync::Arc};
+use crate::{MaybeSend, MaybeSync};
+use std::{collections::HashMap, hash::Hash, ops::Deref, sync::Arc};
 
 use async_channel::{Sender, bounded};
 use async_context::with_async_context_mut;
 
-use crate::{Element, hook::Hook};
+use crate::{Element, Identify, hook::Hook};
 
-type StateUpdateFn = Box<
-    dyn FnOnce(Option<Arc<dyn Any + Send + Sync>>) -> Arc<dyn Any + Send + Sync> + Send + 'static,
->;
+trait UpdateFn: FnOnce(Option<crate::SharedValue>) -> crate::SharedValue + MaybeSend {}
+impl<T: FnOnce(Option<crate::SharedValue>) -> crate::SharedValue + MaybeSend> UpdateFn for T {}
+type StateUpdateFn = Box<dyn UpdateFn>;
 
 pub(crate) struct StateUpdate {
     update: StateUpdateFn,
@@ -15,7 +16,7 @@ pub(crate) struct StateUpdate {
 }
 
 impl StateUpdate {
-    pub(crate) fn apply(self, state: &mut HashMap<u16, Arc<dyn Any + Send + Sync>>) {
+    pub(crate) fn apply(self, state: &mut HashMap<u16, crate::platform::SharedValue>) {
         let this_state = state.get_mut(&self.index).cloned();
 
         let update = self.update;
@@ -30,7 +31,7 @@ impl StateUpdate {
 /// ```
 /// use bloom_core::use_state;
 ///
-/// let my_state = use_state(|| 0);
+/// let my_state = use_state(|| 0.into());
 ///
 /// assert_eq!(0, *my_state);
 /// ```
@@ -39,10 +40,11 @@ impl StateUpdate {
 /// Call it from a callback, such as an event handler:
 /// ```
 /// use bloom_core::{component, use_state, Element};
+/// use std::sync::Arc;
 /// #[component]
 /// fn Counter() -> Result<Element<String, ()>, ()> {
-///     let count = use_state(|| 0);
-///     let increment = move || count.update(|value| *value + 1);
+///     let count = use_state(|| Arc::new(0));
+///     let increment = move || count.update(|value| (*value + 1).into());
 ///     // Pass `increment` to the renderer's event handler.
 ///     Ok("Increment".into())
 /// }
@@ -83,23 +85,25 @@ where
 
 impl<T> State<T>
 where
-    T: Send + Sync + 'static,
+    T: MaybeSend + MaybeSync + 'static,
 {
-    fn mock(value: T) -> Self {
+    fn mock<I>(value: I) -> Self
+    where
+        I: Into<Arc<T>>,
+    {
         let (mock_signal, _) = bounded(1);
         let (mock_updater, _) = bounded(1);
         State {
-            value: Arc::new(value),
+            value: value.into(),
             signal: mock_signal,
             updater: mock_updater,
             index: 0,
         }
     }
 
-    pub fn update<C, R>(&self, callback: C)
+    pub fn update<C>(&self, callback: C)
     where
-        R: Into<Arc<T>>,
-        C: FnOnce(Arc<T>) -> R + Send + Sync + 'static,
+        C: FnOnce(Arc<T>) -> Arc<T> + MaybeSend + MaybeSync + 'static,
     {
         let current_value = self.value.clone();
         self.updater
@@ -115,6 +119,39 @@ where
             .expect("Failed to send update");
         let _ = self.signal.try_send(());
     }
+
+    pub fn set<I>(&self, value: I)
+    where
+        I: Into<Arc<T>>,
+    {
+        let typed_value = value.into();
+        self.updater
+            .try_send(StateUpdate {
+                update: Box::new(move |_| typed_value.into()),
+                index: self.index,
+            })
+            .expect("Failed to send new state");
+        let _ = self.signal.try_send(());
+    }
+}
+
+impl<T> Identify for State<T>
+where
+    T: Identify,
+{
+    fn id(&self) -> u64 {
+        let value: &T = self;
+        value.id()
+    }
+}
+
+impl<T> Into<Arc<T>> for State<T>
+where
+    T: Identify,
+{
+    fn into(self) -> Arc<T> {
+        self.value
+    }
 }
 
 /// Analog to react's useState API.
@@ -122,8 +159,8 @@ where
 /// The returned State-object can be used to read and update the state.
 pub fn use_state<T, D>(default: D) -> State<T>
 where
-    T: Send + Sync + 'static,
-    D: FnOnce() -> T,
+    T: MaybeSend + MaybeSync + 'static,
+    D: FnOnce() -> Arc<T>,
 {
     with_async_context_mut(|hook: Option<&mut Hook>| {
         if let Some(hook) = hook {
@@ -144,8 +181,8 @@ where
                 }
             } else {
                 // Store the initial value so later renders don't build it again
-                let value = Arc::new(default());
-                hook.state.insert(index, value.clone());
+                let value = default();
+                hook.state.insert(index, value.clone().into());
                 State {
                     value,
                     signal,

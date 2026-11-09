@@ -1,6 +1,8 @@
 //! The interactive render loop.
 //! A render pass visits the tree (`visit`, `children`), rendering components on the spawner
 //! (`render`), and commits the collected changes in one go.
+use crate::MaybeSpawn;
+use crate::{MaybeSend, MaybeSync};
 
 mod children;
 mod render;
@@ -9,10 +11,10 @@ mod tests;
 mod tree;
 mod visit;
 
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use async_channel::{Sender, bounded};
-use futures_util::{Future, future, task::Spawn};
+use futures_util::{Future, future};
 
 use crate::{
     Element, Spawner,
@@ -27,8 +29,8 @@ use tree::{TreeNode, TreeRoot};
 use visit::visit;
 
 type RenderOutput<N, E> = (Result<Element<N, E>, E>, Hook);
-type RenderFuture<N, E> = Pin<Box<dyn Future<Output = RenderOutput<N, E>> + Send>>;
-type Visit<'a, N, E> = Pin<Box<dyn Future<Output = Result<Changes<N>, E>> + Send + 'a>>;
+type RenderFuture<N, E> = crate::platform::BoxFuture<'static, RenderOutput<N, E>>;
+type Visit<'a, N, E> = crate::platform::BoxFuture<'a, Result<Changes<N>, E>>;
 
 /// Levels of nested nodes that are visited in one task before continuing in a new one
 const TASK_DEPTH: usize = 32;
@@ -47,7 +49,7 @@ where
 enum ComponentWork<N, E> {
     Create,
     Reload,
-    NewProps(Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>),
+    NewProps(Arc<dyn AnyComponent<Node = N, Error = E>>),
 }
 
 /// Shared by all tasks of the render loop, each task gets its own clone
@@ -59,7 +61,7 @@ struct Pass {
 
 pub trait ObjectModel {
     type Node;
-    fn start(&mut self) -> impl Future<Output = ()> + Send {
+    fn start(&mut self) -> impl Future<Output = ()> + MaybeSend {
         // Do nothing by default
         future::ready(())
     }
@@ -80,7 +82,7 @@ pub trait ObjectModel {
         sibling: &Option<Arc<Self::Node>>,
     );
     fn update(&mut self, node: &Arc<Self::Node>, next: &Arc<Self::Node>);
-    fn finalize(&mut self) -> impl Future<Output = ()> + Send {
+    fn finalize(&mut self) -> impl Future<Output = ()> + MaybeSend {
         // Do nothing by default
         future::ready(())
     }
@@ -113,12 +115,13 @@ pub trait ObjectModel {
 /// This is usually a component.
 ///
 /// The spawner-argument is
-/// an object that implements the Spawn-trait so bloom can spawn async tasks on
+/// an object that implements [`MaybeSpawn`] so bloom can spawn async tasks on
 /// arbitrary task runners such as tokio or async-std.
 /// Every component that renders is rendered and diffed in its own task on the spawner, so with a
 /// multi-threaded spawner sibling components render in parallel.
 /// Each of these tasks gets its own clone of the spawner, which is shared with the tasks
-/// it spawns, so the spawner has to be `Clone`, `Send` and `Sync`.
+/// it spawns, so the spawner has to be `Clone`, [`MaybeSend`] and [`MaybeSync`].
+/// Browser WebAssembly uses `LocalSpawn`; other targets use `Spawn`.
 ///
 /// Each render pass has two phases:
 /// 1. Rendering visits the tree and collects the changes to the object model in document order,
@@ -186,9 +189,9 @@ pub async fn render_loop<N, E, S, P>(
     mut object_model: P,
 ) -> Result<(), E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
+    S: MaybeSpawn + Clone + MaybeSend + MaybeSync + 'static,
     P: ObjectModel<Node = N>,
 {
     let mut tree_root = TreeRoot(TreeNode::from(element));

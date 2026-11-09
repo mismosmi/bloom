@@ -1,3 +1,4 @@
+use crate::{MaybeSend, MaybeSync};
 use async_context::with_async_context_mut;
 
 use crate::{hook::Hook, identify::Identify};
@@ -26,7 +27,9 @@ impl Cleanup {
     }
 }
 
-pub(crate) struct Effect(Box<dyn FnOnce() -> Cleanup + Send + Sync + 'static>);
+trait EffectFn: FnOnce() -> Cleanup + MaybeSend + MaybeSync {}
+impl<T: FnOnce() -> Cleanup + MaybeSend + MaybeSync> EffectFn for T {}
+pub(crate) struct Effect(Box<dyn EffectFn>);
 
 impl Effect {
     pub(crate) fn run(self) -> Cleanup {
@@ -42,7 +45,7 @@ impl Effect {
 /// Cleanups don't have to be `Send`, so they can hold on to JavaScript objects.
 pub fn use_effect<A, C>(arg: A, effect: fn(A) -> C)
 where
-    A: Identify + Send + Sync + 'static,
+    A: Identify + MaybeSend + MaybeSync + 'static,
     C: Into<Cleanup> + 'static,
 {
     with_async_context_mut(|hook: Option<&mut Hook>| {

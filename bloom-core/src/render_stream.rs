@@ -1,17 +1,12 @@
-use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-    pin::Pin,
-    sync::Arc,
-    task::Poll,
-};
+use crate::MaybeSpawn;
+use crate::{MaybeSend, MaybeSync};
+use std::{any::TypeId, collections::HashMap, pin::Pin, sync::Arc, task::Poll};
 
 use async_context::provide_async_context;
 use futures_util::{
     Future, Stream, StreamExt,
     future::{self},
     stream::{FuturesOrdered, once},
-    task::Spawn,
 };
 
 use crate::{Element, Spawner, hook::Hook};
@@ -21,7 +16,7 @@ use pin_project::pin_project;
 type NodeStreamItem<N, E> = Result<(N, NodeStream<N, E>), E>;
 
 #[pin_project]
-pub struct NodeStream<N, E>(#[pin] Pin<Box<dyn Stream<Item = NodeStreamItem<N, E>> + Send>>);
+pub struct NodeStream<N, E>(#[pin] crate::platform::BoxStream<'static, NodeStreamItem<N, E>>);
 
 impl<N, E> Stream for NodeStream<N, E> {
     type Item = NodeStreamItem<N, E>;
@@ -37,10 +32,10 @@ impl<N, E> Stream for NodeStream<N, E> {
 
 impl<N, E> NodeStream<N, E>
 where
-    E: Send + 'static,
-    N: Send + 'static,
+    E: MaybeSend + 'static,
+    N: MaybeSend + 'static,
 {
-    fn from(stream: impl Stream<Item = NodeStreamItem<N, E>> + Send + 'static) -> Self {
+    fn from(stream: impl Stream<Item = NodeStreamItem<N, E>> + MaybeSend + 'static) -> Self {
         Self(Box::pin(stream))
     }
 
@@ -48,14 +43,14 @@ where
         Self::from(once(future::ready(item)))
     }
 
-    fn wrap(inner: impl Future<Output = NodeStream<N, E>> + Send + 'static) -> Self {
+    fn wrap(inner: impl Future<Output = NodeStream<N, E>> + MaybeSend + 'static) -> Self {
         Self(Box::pin(once(inner).flatten()))
     }
 }
 
 #[derive(Clone)]
 struct RenderContext {
-    context: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+    context: Arc<HashMap<TypeId, crate::platform::SharedValue>>,
 }
 
 impl RenderContext {
@@ -65,9 +60,9 @@ impl RenderContext {
         }
     }
 
-    fn with_context(&self, value: Arc<dyn Any + Send + Sync>) -> Self {
+    fn with_context(&self, value: crate::platform::SharedValue) -> Self {
         let mut new_context = self.context.as_ref().clone();
-        new_context.insert((*value).type_id(), value);
+        new_context.insert(value.type_id(), value);
         Self {
             context: Arc::new(new_context),
         }
@@ -78,10 +73,10 @@ fn render_element<N, E>(
     element: Element<N, E>,
     spawner: Spawner,
     ctx: RenderContext,
-) -> Pin<Box<dyn Future<Output = NodeStream<N, E>> + Send>>
+) -> crate::platform::BoxFuture<'static, NodeStream<N, E>>
 where
-    N: From<String> + Send + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + 'static,
+    E: MaybeSend + 'static,
 {
     match element {
         Element::Component(component) => Box::pin(async move {
@@ -121,8 +116,8 @@ fn render_children<N, E>(
     ctx: RenderContext,
 ) -> NodeStream<N, E>
 where
-    N: From<String> + Send + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + 'static,
+    E: MaybeSend + 'static,
 {
     let children = children
         .into_iter()
@@ -139,9 +134,9 @@ where
 /// a stream of serialized HTML to implement server-side rendering.
 pub fn render_stream<N, E, S>(element: Element<N, E>, spawner: S) -> NodeStream<N, E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
-    S: Spawn + Clone + Send + Sync + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
+    S: MaybeSpawn + Clone + MaybeSend + MaybeSync + 'static,
 {
     NodeStream::wrap(render_element(
         element,

@@ -33,7 +33,7 @@ async fn with_effect() {
                 async fn render(
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                    use_effect(self.0.clone(), |sender| {
+                    use_effect(crate::ByHash(self.0.clone()), |crate::ByHash(sender)| {
                         sender.0.try_send(()).unwrap();
                     });
                     Ok(Element::Node(MockNode(0), Vec::new()))
@@ -101,11 +101,11 @@ async fn effect_lifecycle() {
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
                     use_effect(
-                        Probe {
+                        crate::ByHash(Probe {
                             dependency: self.dependency,
                             log: self.log.clone(),
-                        },
-                        |probe| {
+                        }),
+                        |crate::ByHash(probe)| {
                             probe
                                 .log
                                 .lock()
@@ -142,10 +142,10 @@ async fn effect_lifecycle() {
                 async fn render(
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                    let step = use_state(|| 0i32);
+                    let step = use_state(|| 0i32.into());
                     if *step < 3 {
                         let step = step.clone();
-                        tokio::spawn(async move { step.update(|step| *step + 1) });
+                        tokio::spawn(async move { step.update(|step| (*step + 1).into()) });
                     }
                     // Same dependency, then a new one, then the child is removed
                     let (dependency, render) = match *step {
@@ -244,7 +244,7 @@ async fn commit_runs_cleanups_before_and_effects_after_node_operations() {
                 async fn render(
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                    use_effect(self.0.clone(), |probe| {
+                    use_effect(crate::ByHash(self.0.clone()), |crate::ByHash(probe)| {
                         probe.record("effect");
                         move || probe.record("cleanup")
                     });
@@ -268,11 +268,11 @@ async fn commit_runs_cleanups_before_and_effects_after_node_operations() {
                 async fn render(
                     self: Arc<Self>,
                 ) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-                    let removed = use_state(|| false);
+                    let removed = use_state(|| false.into());
                     if *removed {
                         return Ok(().into());
                     }
-                    tokio::spawn(async move { removed.update(|_| true) });
+                    tokio::spawn(async move { removed.update(|_| true.into()) });
                     Ok(Element::Component(Arc::new(Child(self.0.clone()))))
                 }
             }

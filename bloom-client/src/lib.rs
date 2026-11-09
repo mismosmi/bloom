@@ -1,3 +1,4 @@
+use bloom_core::MaybeSend;
 use std::{fmt::Debug, sync::Arc};
 
 use bloom_core::{Element, render_loop};
@@ -9,10 +10,12 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::{HtmlElement, console, wasm_bindgen::JsCast, window};
 
 mod dom;
+mod error_to_console;
 mod interned_str;
 mod partial;
 mod spawner;
 
+pub use error_to_console::{ErrorToConsole, async_error_to_console, error_to_console};
 pub use partial::hydrate_partial;
 
 pub fn get_element_by_id(id: &str) -> Option<HtmlElement> {
@@ -35,7 +38,8 @@ pub fn get_element_by_id(id: &str) -> Option<HtmlElement> {
 ///
 /// # #[derive(PartialEq, NoopBuilder)]
 /// # struct MyComponent;
-/// # #[async_trait]
+/// # #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+/// # #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
 /// # impl Component for MyComponent {
 /// #     type Node = HtmlNode;
 /// #     type Error = ();
@@ -51,7 +55,7 @@ pub fn get_element_by_id(id: &str) -> Option<HtmlElement> {
 /// ```
 pub fn render<E>(root: HtmlElement, element: Element<HtmlNode, E>)
 where
-    E: Send + 'static + Debug,
+    E: MaybeSend + 'static + Debug,
 {
     spawn_local(async {
         let mut dom = Dom::new();
@@ -72,7 +76,7 @@ where
 /// hydrate can be used to hydrate an existing DOM from server-side rendered HTML.
 pub fn hydrate<E>(root: HtmlElement, element: Element<HtmlNode, E>)
 where
-    E: Send + 'static + Debug,
+    E: MaybeSend + 'static + Debug,
 {
     spawn_local(async {
         let mut dom = Dom::hydrate();
@@ -140,16 +144,16 @@ mod tests {
     #[derive(PartialEq)]
     struct ReversibleList;
 
-    #[async_trait]
+    #[async_trait(?Send)]
     impl Component for ReversibleList {
         type Node = HtmlNode;
         type Error = ();
 
         async fn render(self: Arc<Self>) -> Result<Element<Self::Node, Self::Error>, Self::Error> {
-            let reversed = use_state(|| false);
+            let reversed = use_state(|| false.into());
             let reverse = reversed.clone();
             REVERSE.with(|cell| {
-                *cell.borrow_mut() = Some(Box::new(move || reverse.update(|_| true)));
+                *cell.borrow_mut() = Some(Box::new(move || reverse.update(|_| true.into())));
             });
             let ids = if *reversed {
                 vec![3, 2, 1]

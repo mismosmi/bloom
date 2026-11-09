@@ -1,14 +1,9 @@
 //! Partial rendering support for bloom is WIP
 use async_channel::Sender;
+use bloom_core::MaybeSend;
 use bloom_core::{Element, ObjectModel, render_loop};
 use bloom_html::HtmlNode;
-use std::{
-    any::{Any, TypeId},
-    cell::RefCell,
-    collections::HashMap,
-    fmt::Debug,
-    sync::Arc,
-};
+use std::{any::TypeId, cell::RefCell, collections::HashMap, fmt::Debug, sync::Arc};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{Node, console, js_sys::Array, window};
 
@@ -16,7 +11,7 @@ use crate::{dom::Dom, interned_str::interned, spawner::WasmSpawner};
 
 #[derive(Default)]
 struct PartialRenderingContext {
-    context: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+    context: Arc<HashMap<TypeId, bloom_core::SharedValue>>,
     subscribers: Vec<Sender<()>>,
 }
 
@@ -77,7 +72,7 @@ impl ObjectModel for PartialDom {
         self.0.move_node(node, parent, sibling)
     }
 
-    fn finalize(&mut self) -> impl futures_util::Future<Output = ()> + Send {
+    fn finalize(&mut self) -> impl futures_util::Future<Output = ()> + MaybeSend {
         self.0.finalize()
     }
 
@@ -91,7 +86,7 @@ impl ObjectModel for PartialDom {
         });
     }
 
-    fn get_context(&mut self) -> Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>> {
+    fn get_context(&mut self) -> Arc<HashMap<TypeId, bloom_core::SharedValue>> {
         CONTEXT.with(|context| {
             let context = context.borrow();
             let context = context.get(&self.1).unwrap();
@@ -102,7 +97,7 @@ impl ObjectModel for PartialDom {
 
 pub fn hydrate_partial<E>(partial_id: String, element: Element<HtmlNode, E>)
 where
-    E: Send + 'static + Debug,
+    E: MaybeSend + 'static + Debug,
 {
     spawn_local(async {
         let first_node = match window()

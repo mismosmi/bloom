@@ -1,5 +1,4 @@
 use std::{
-    any::Any,
     collections::HashMap,
     mem,
     sync::{
@@ -28,15 +27,15 @@ where
     N: From<String>,
 {
     pub(super) id: ComponentId,
-    pub(super) component: Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>,
-    pub(super) state: HashMap<u16, Arc<dyn Any + Send + Sync>>,
+    pub(super) component: Arc<dyn AnyComponent<Node = N, Error = E>>,
+    pub(super) state: HashMap<u16, crate::platform::SharedValue>,
     pub(super) updates: Receiver<StateUpdate>,
     pub(super) updater: Sender<StateUpdate>,
     /// A render that suspended in an earlier render pass
     pub(super) render_result: Option<RenderFuture<N, E>>,
     pub(super) child: Option<Box<TreeNode<N, E>>>,
-    pub(super) refs: HashMap<u16, Arc<dyn Any + Send + Sync + 'static>>,
-    pub(super) memos: Vec<(u64, Arc<dyn Any + Send + Sync>)>,
+    pub(super) refs: HashMap<u16, crate::platform::SharedValue>,
+    pub(super) memos: Vec<(u64, crate::platform::SharedValue)>,
     /// Effects of a detached component only run once its nodes are shown
     pub(super) deferred_effects: Option<Vec<(u64, Effect)>>,
 }
@@ -45,7 +44,7 @@ impl<N, E> TreeComponent<N, E>
 where
     N: From<String>,
 {
-    pub(super) fn new(component: Arc<dyn AnyComponent<Node = N, Error = E> + Send + Sync>) -> Self {
+    pub(super) fn new(component: Arc<dyn AnyComponent<Node = N, Error = E>>) -> Self {
         let (update_sender, update_receiver) = unbounded::<StateUpdate>();
         Self {
             id: NEXT_COMPONENT_ID.fetch_add(1, Ordering::Relaxed),
@@ -107,7 +106,7 @@ where
     Component(Box<TreeComponent<N, E>>),
     Node(Arc<N>, Vec<TreeNode<N, E>>),
     Fragment(Vec<TreeNode<N, E>>),
-    Provider(Arc<dyn Any + Send + Sync>, Vec<TreeNode<N, E>>),
+    Provider(crate::platform::SharedValue, Vec<TreeNode<N, E>>),
     Keyed(Key, Box<TreeNode<N, E>>),
     Suspense(TreeSuspense<N, E>),
 }
@@ -329,7 +328,7 @@ where
 {
     Node(N),
     Fragment,
-    Provider(Arc<dyn Any + Send + Sync>),
+    Provider(crate::platform::SharedValue),
     Keyed(Key),
     Suspense(Element<N, E>),
 }

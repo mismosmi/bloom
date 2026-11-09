@@ -1,3 +1,4 @@
+use bloom_core::Identify;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -70,6 +71,12 @@ impl Drop for DomRef {
 impl Hash for DomRef {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.load(Ordering::Relaxed).hash(state);
+    }
+}
+
+impl Identify for DomRef {
+    fn id(&self) -> u64 {
+        self.0.load(Ordering::Relaxed).id()
     }
 }
 

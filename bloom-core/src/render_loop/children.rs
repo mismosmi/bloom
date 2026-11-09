@@ -1,3 +1,4 @@
+use crate::{MaybeSend, MaybeSync};
 use std::{collections::HashMap, mem};
 
 use crate::{Element, Key, commit::Changes, render_context::RenderContext};
@@ -16,8 +17,8 @@ pub(super) async fn update_children<N, E>(
     pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
 {
     if tree_nodes.iter().any(|node| node.key().is_some())
         || elements
@@ -37,8 +38,8 @@ pub(super) async fn update_children_by_position<N, E>(
     pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
 {
     let kept = elements.len().min(tree_nodes.len());
     let removed: Vec<TreeNode<N, E>> = tree_nodes.drain(kept..).collect();
@@ -96,8 +97,8 @@ pub(super) async fn update_keyed_children<N, E>(
     pass: &Pass,
 ) -> Result<Changes<N>, E>
 where
-    N: From<String> + Send + Sync + 'static,
-    E: Send + 'static,
+    N: From<String> + MaybeSend + MaybeSync + 'static,
+    E: MaybeSend + 'static,
 {
     let old_nodes = mem::take(tree_nodes);
     let mut old_indices = HashMap::with_capacity(old_nodes.len());
