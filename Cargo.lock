@@ -175,6 +175,7 @@ dependencies = [
  "async-trait",
  "bloom-core",
  "bloom-rsx",
+ "js-sys",
  "web-sys",
 ]
 

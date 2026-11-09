@@ -11,7 +11,15 @@ repository = "https://github.com/mismosmi/bloom/tree/main/bloom-html"
 
 [dependencies]
 bloom-core.workspace = true
-web-sys = { version = "0.3", features = ["Event", "HtmlElement"] }
+web-sys = { version = "0.3", features = [
+    "Event",
+    "HtmlElement",
+    "HtmlFormElement",
+    "FormData",
+    "Blob",
+    "File",
+] }
+js-sys = "0.3"
 
 [dev-dependencies]
 bloom-rsx.workspace = true

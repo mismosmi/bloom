@@ -1,4 +1,7 @@
 //! Some basic html tags
+
+pub mod form;
+
 use crate::{HtmlNode, element::HtmlElementBuilder};
 
 pub fn div() -> HtmlElementBuilder<&'static str> {

@@ -98,6 +98,7 @@ pub use dom_ref::DomRef;
 pub use element::HtmlElement;
 pub use event::EventHandler;
 pub use node::{HtmlNode, tag};
+pub use tag::form::Form;
 
 /// shortcut for generating text-nodes
 pub fn text<E, T>(text: T) -> Element<HtmlNode, E>

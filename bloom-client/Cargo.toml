@@ -29,6 +29,7 @@ web-sys = { version = "0.3", features = [
     "Comment",
 ] }
 js-sys = "0.3"
+wasm-bindgen = { version = "0.2.129", default-features = false }
 
 [dev-dependencies]
 async-trait = "0.1.92"

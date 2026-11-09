@@ -15,7 +15,7 @@ mod interned_str;
 mod partial;
 mod spawner;
 
-pub use error_to_console::{ErrorToConsole, error_to_console};
+pub use error_to_console::{ErrorToConsole, async_error_to_console, error_to_console};
 pub use partial::hydrate_partial;
 
 pub fn get_element_by_id(id: &str) -> Option<HtmlElement> {
